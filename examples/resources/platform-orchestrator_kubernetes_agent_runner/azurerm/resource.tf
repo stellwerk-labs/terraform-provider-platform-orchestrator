@@ -1,0 +1,31 @@
+resource "platform-orchestrator_kubernetes_agent_runner" "my_runner" {
+  id          = "my-runner"
+  description = "runner for all the envs"
+  runner_configuration = {
+    key = <<EOT
+-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEAc5dgCx4ano39JT0XgTsHnts3jej+5xl7ZAwSIrKpef0=
+-----END PUBLIC KEY-----
+EOT
+    job = {
+      namespace       = "default"
+      service_account = "platform-orchestrator-runner"
+      pod_template = jsonencode({
+        metadata = {
+          labels = {
+            "app.kubernetes.io/name" = "platform-orchestrator-runner"
+          }
+        }
+      })
+    }
+  }
+  state_storage_configuration = {
+    type = "azurerm"
+    azurerm_configuration = {
+      resource_group_name  = "my-resource-group"
+      storage_account_name = "my-storage-account"
+      container_name       = "my-container"
+      path_prefix          = "state/prefix"
+    }
+  }
+}
