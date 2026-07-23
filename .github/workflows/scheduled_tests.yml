@@ -4,6 +4,9 @@ on:
   - cron: "0 10 * * *"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   e2e_tests:
     uses: ./.github/workflows/test.yml
@@ -11,36 +14,28 @@ jobs:
   notify:
     needs: e2e_tests
     runs-on: ubuntu-latest
-    if: ${{ needs.e2e_tests.result == 'failure' }}
+    if: ${{ always() && needs.e2e_tests.result != 'success' }}
     steps:
-      - name: Notify on failure
-        uses: slackapi/slack-github-action@v2.1.1
-        with:
-          method: chat.postMessage
-          token: ${{ secrets.SLACK_BOT_TOKEN }}
-          payload: |
-            {
-              "channel":"${{ vars.SLACK_CHANNEL_ID }}",
-              "attachments": [{
-                "color": "danger",
-                "title": "Terraform Provider Acceptance Tests Failed",
-                "text": "The scheduled e2e acceptance tests have failed. Please review the workflow run.",
-                "fields": [
-                  {
-                    "title": "Repository",
-                    "value": "${{ github.repository }}",
-                    "short": true
-                  },
-                  {
-                    "title": "Workflow",
-                    "value": "${{ github.workflow }}",
-                    "short": true
-                  },
-                  {
-                    "title": "Run",
-                    "value": "<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Run>",
-                    "short": false
-                  }
-                ]
-              }]
-            }
+      - name: Notify through ntfy
+        env:
+          NTFY_BASE_URL: ${{ vars.NTFY_BASE_URL }}
+          NTFY_TOPIC: ${{ vars.NTFY_TOPIC }}
+          NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
+          TEST_RESULT: ${{ needs.e2e_tests.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          : "${NTFY_BASE_URL:?NTFY_BASE_URL repository variable is required}"
+          : "${NTFY_TOPIC:?NTFY_TOPIC repository variable is required}"
+          : "${NTFY_TOKEN:?NTFY_TOKEN repository secret is required}"
+
+          curl --fail-with-body --silent --show-error \
+            --retry 3 \
+            --retry-all-errors \
+            --header "Authorization: Bearer ${NTFY_TOKEN}" \
+            --header "Title: Terraform provider E2E tests ${TEST_RESULT}" \
+            --header "Priority: high" \
+            --header "Tags: warning,github" \
+            --header "Actions: view, View workflow run, ${RUN_URL}" \
+            --data "${GITHUB_REPOSITORY} scheduled E2E workflow finished with ${TEST_RESULT}." \
+            "${NTFY_BASE_URL}/${NTFY_TOPIC}"
