@@ -44,6 +44,7 @@ jobs:
         with:
           terraform_wrapper: false
       - run: make generate
+      - run: make check-api-specs
       - name: git diff
         run: |
           git diff --compact-summary --exit-code || \
@@ -67,6 +68,8 @@ jobs:
           terraform_version: 1.4.*
           terraform_wrapper: false
       - run: go mod download
+      - name: Run contained automation acceptance test
+        run: TF_ACC=1 go test -v -run '^TestAccAutomationResourcesLocal$' -count=1 ./internal/provider/
       - env:
           PO_ORG_ID: ${{ vars.PO_ORG_ID }}
           PO_AUTH_TOKEN: ${{ secrets.PO_AUTH_TOKEN }}

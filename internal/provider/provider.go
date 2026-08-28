@@ -16,6 +16,7 @@ import (
 
 	cp "github.com/stellwerk-labs/terraform-provider-platform-orchestrator/internal/clients/platform-orchestrator-cp"
 	dp "github.com/stellwerk-labs/terraform-provider-platform-orchestrator/internal/clients/platform-orchestrator-dp"
+	iam "github.com/stellwerk-labs/terraform-provider-platform-orchestrator/internal/clients/platform-orchestrator-iam"
 
 	"github.com/google/uuid"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
@@ -69,8 +70,9 @@ type PlatformOrchestratorProviderModel struct {
 type PlatformOrchestratorProviderData struct {
 	OrgId string
 
-	CpClient cp.ClientWithResponsesInterface
-	DpClient dp.ClientWithResponsesInterface
+	CpClient  cp.ClientWithResponsesInterface
+	DpClient  dp.ClientWithResponsesInterface
+	IamClient iam.ClientWithResponsesInterface
 }
 
 func (p *PlatformOrchestratorProvider) Metadata(ctx context.Context, req provider.MetadataRequest, resp *provider.MetadataResponse) {
@@ -275,10 +277,17 @@ func (p *PlatformOrchestratorProvider) Configure(ctx context.Context, req provid
 		return
 	}
 
+	iamc, err := iam.NewClientWithResponses(apiUrl, iam.WithRequestEditorFn(extraHeadersEditor), iam.WithHTTPClient(client))
+	if err != nil {
+		resp.Diagnostics.AddError(PO_CLIENT_ERR, fmt.Sprintf("Unable to create Platform Orchestrator IAM client: %s", err.Error()))
+		return
+	}
+
 	respData := &PlatformOrchestratorProviderData{
-		OrgId:    orgId,
-		CpClient: cpc,
-		DpClient: dpc,
+		OrgId:     orgId,
+		CpClient:  cpc,
+		DpClient:  dpc,
+		IamClient: iamc,
 	}
 
 	resp.DataSourceData = respData
@@ -301,6 +310,9 @@ func (p *PlatformOrchestratorProvider) Resources(ctx context.Context) []func() r
 		NewRunnerRuleResource,
 		NewEnvironmentResource,
 		NewDeploymentResource,
+		NewRoleResource,
+		NewScimGroupMappingResource,
+		NewMetadataKeyResource,
 	}
 }
 
@@ -324,6 +336,12 @@ func (p *PlatformOrchestratorProvider) DataSources(ctx context.Context) []func()
 		NewModuleRuleDataSource,
 		NewRunnerRuleDataSource,
 		NewEnvironmentDataSource,
+		NewRoleDataSource,
+		NewRolesDataSource,
+		NewPermissionsDataSource,
+		NewScimGroupMappingsDataSource,
+		NewMetadataKeyDataSource,
+		NewMetadataKeysDataSource,
 	}
 }
 
