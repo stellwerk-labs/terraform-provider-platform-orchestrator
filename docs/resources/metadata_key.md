@@ -31,9 +31,9 @@ resource "platform-orchestrator_metadata_key" "cost_center" {
 
 ### Optional
 
-- `description` (String) A human-readable description. Removing a configured description replaces the key because the API cannot clear optional fields in place.
-- `format` (String) An optional string format constraint. Removing a configured constraint replaces the key.
-- `pattern` (String) An optional regular-expression constraint. Removing a configured constraint replaces the key.
+- `description` (String) A human-readable description.
+- `format` (String) An optional string format constraint.
+- `pattern` (String) An optional regular-expression constraint.
 
 ### Read-Only
 

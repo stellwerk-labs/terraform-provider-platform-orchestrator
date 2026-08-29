@@ -14,6 +14,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/oapi-codegen/nullable"
 
 	dp "github.com/stellwerk-labs/terraform-provider-platform-orchestrator/internal/clients/platform-orchestrator-dp"
 )
@@ -44,22 +45,12 @@ func (r *MetadataKeyResource) Metadata(_ context.Context, req resource.MetadataR
 func (r *MetadataKeyResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{MarkdownDescription: "An organization metadata key and its validation schema.", Attributes: map[string]schema.Attribute{
 		"name":        schema.StringAttribute{MarkdownDescription: "The metadata key name.", Required: true, PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
-		"description": schema.StringAttribute{MarkdownDescription: "A human-readable description. Removing a configured description replaces the key because the API cannot clear optional fields in place.", Optional: true, PlanModifiers: []planmodifier.String{requiresReplaceWhenRemoved()}},
+		"description": schema.StringAttribute{MarkdownDescription: "A human-readable description.", Optional: true},
 		"schema_type": schema.StringAttribute{MarkdownDescription: "The metadata value type. Currently only `string` is supported.", Required: true, Validators: []validator.String{stringvalidator.OneOf(string(dp.MetadataKeySchemaTypeString))}},
-		"format":      schema.StringAttribute{MarkdownDescription: "An optional string format constraint. Removing a configured constraint replaces the key.", Optional: true, PlanModifiers: []planmodifier.String{requiresReplaceWhenRemoved()}},
-		"pattern":     schema.StringAttribute{MarkdownDescription: "An optional regular-expression constraint. Removing a configured constraint replaces the key.", Optional: true, PlanModifiers: []planmodifier.String{requiresReplaceWhenRemoved()}},
+		"format":      schema.StringAttribute{MarkdownDescription: "An optional string format constraint.", Optional: true},
+		"pattern":     schema.StringAttribute{MarkdownDescription: "An optional regular-expression constraint.", Optional: true},
 		"created_at":  schema.StringAttribute{MarkdownDescription: "The time the metadata key was created.", Computed: true},
 	}}
-}
-
-func requiresReplaceWhenRemoved() planmodifier.String {
-	return stringplanmodifier.RequiresReplaceIf(
-		func(_ context.Context, req planmodifier.StringRequest, resp *stringplanmodifier.RequiresReplaceIfFuncResponse) {
-			resp.RequiresReplace = req.PlanValue.IsNull() && !req.StateValue.IsNull()
-		},
-		"Removing this value requires replacing the metadata key because the API cannot clear optional fields in place.",
-		"Removing this value requires replacing the metadata key.",
-	)
 }
 
 func (r *MetadataKeyResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
@@ -85,9 +76,19 @@ func metadataKeyCreateBody(data MetadataKeyModel) dp.MetadataKeyCreateBody {
 func metadataKeyUpdateBody(data MetadataKeyModel) dp.MetadataKeyUpdateBody {
 	typeValue := dp.UpdateMetadataKeySchemaType(data.SchemaType.ValueString())
 	return dp.MetadataKeyUpdateBody{
-		Description: fromStringValueToStringPointer(data.Description),
-		Schema:      &dp.UpdateMetadataKeySchema{Type: &typeValue, Format: fromStringValueToStringPointer(data.Format), Pattern: fromStringValueToStringPointer(data.Pattern)},
+		Description: nullableStringUpdate(data.Description),
+		Schema:      &dp.UpdateMetadataKeySchema{Type: &typeValue, Format: nullableStringUpdate(data.Format), Pattern: nullableStringUpdate(data.Pattern)},
 	}
+}
+
+func nullableStringUpdate(value types.String) nullable.Nullable[string] {
+	if value.IsUnknown() {
+		return nil
+	}
+	if value.IsNull() {
+		return nullable.NewNullNullable[string]()
+	}
+	return nullable.NewNullableWithValue(value.ValueString())
 }
 
 func (r *MetadataKeyResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {

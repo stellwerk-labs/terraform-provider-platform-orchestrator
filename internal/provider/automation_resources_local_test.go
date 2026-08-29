@@ -14,6 +14,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/knownvalue"
 	"github.com/hashicorp/terraform-plugin-testing/statecheck"
 	"github.com/hashicorp/terraform-plugin-testing/tfjsonpath"
+	"github.com/stretchr/testify/require"
 )
 
 type automationAPIFixture struct {
@@ -22,6 +23,11 @@ type automationAPIFixture struct {
 	role    map[string]any
 	mapping map[string]any
 	key     map[string]any
+
+	metadataCreates       int
+	metadataUpdates       int
+	metadataDeletes       int
+	sawMetadataClearPatch bool
 }
 
 func (f *automationAPIFixture) serveHTTP(w http.ResponseWriter, r *http.Request) {
@@ -151,6 +157,7 @@ func (f *automationAPIFixture) handleKeys(w http.ResponseWriter, r *http.Request
 		}
 		body["created_at"] = "2026-08-28T10:02:00Z"
 		f.key = body
+		f.metadataCreates++
 		writeJSON(f.t, w, http.StatusCreated, f.key)
 	case http.MethodGet:
 		items := []map[string]any{}
@@ -179,9 +186,18 @@ func (f *automationAPIFixture) handleKey(w http.ResponseWriter, r *http.Request,
 		for key, value := range body {
 			f.key[key] = value
 		}
+		f.metadataUpdates++
+		description, hasDescription := body["description"]
+		schema, hasSchema := body["schema"].(map[string]any)
+		format, hasFormat := schema["format"]
+		pattern, hasPattern := schema["pattern"]
+		if hasDescription && description == nil && hasSchema && hasFormat && format == nil && hasPattern && pattern == nil {
+			f.sawMetadataClearPatch = true
+		}
 		writeJSON(f.t, w, http.StatusOK, f.key)
 	case http.MethodDelete:
 		f.key = nil
+		f.metadataDeletes++
 		w.WriteHeader(http.StatusNoContent)
 	default:
 		http.Error(w, `{"message":"method not allowed"}`, http.StatusMethodNotAllowed)
@@ -259,6 +275,13 @@ func TestAccAutomationResourcesLocal(t *testing.T) {
 			},
 		},
 	})
+
+	fixture.mu.Lock()
+	defer fixture.mu.Unlock()
+	require.Equal(t, 1, fixture.metadataCreates, "removing optional fields must update the metadata key in place")
+	require.Equal(t, 2, fixture.metadataUpdates)
+	require.Equal(t, 1, fixture.metadataDeletes)
+	require.True(t, fixture.sawMetadataClearPatch, "provider did not send explicit nulls for removed optional fields")
 }
 
 func automationResourcesConfig(apiURL, roleDisplayName, metadataDescription string) string {
