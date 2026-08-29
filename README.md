@@ -44,7 +44,7 @@ terraform {
   required_providers {
     platform-orchestrator = {
       source  = "stellwerk-labs/platform-orchestrator"
-      version = "~> 1.0"
+      version = "~> 1.1"
     }
   }
 }
