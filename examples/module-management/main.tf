@@ -12,6 +12,7 @@ provider "platform-orchestrator" {}
 resource "platform-orchestrator_resource_type" "service_labels" {
   id              = "service-labels"
   output_schema   = jsonencode({ type = "object" })
+  module_contract = jsonencode({ type = "object", required = ["output_schema"] })
   deletion_policy = "retain"
 }
 
@@ -27,6 +28,7 @@ resource "platform-orchestrator_module_version" "release" {
   module_id        = platform-orchestrator_module_catalogue_entry.service_labels.id
   semantic_version = "1.0.0"
   definition = jsonencode({
+    output_schema      = jsondecode(platform-orchestrator_resource_type.service_labels.output_schema)
     module_source      = "inline"
     module_source_code = "output \"labels\" { value = { managed_by = \"stellwerk\" } }"
     module_inputs      = {}

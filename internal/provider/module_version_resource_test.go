@@ -1,12 +1,42 @@
 package provider
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework-jsontypes/jsontypes"
 	cp "github.com/stellwerk-labs/terraform-provider-platform-orchestrator/internal/clients/platform-orchestrator-cp"
 	"github.com/stretchr/testify/require"
 )
+
+func TestModuleVersionDefinitionRejectsUnknownFieldsAndPreservesDeclarations(t *testing.T) {
+	for _, value := range []string{`{"output_schmea":{}}`, `{} {}`, `null`, `[]`} {
+		var body cp.ModuleVersionPublishBody
+		require.Error(t, decodeModuleVersionDefinition(value, &body), value)
+	}
+	for _, output := range []string{"", `,"output_schema":{}`, `,"output_schema":{"type":"object"}`} {
+		var body cp.ModuleVersionPublishBody
+		require.NoError(t, decodeModuleVersionDefinition(`{"module_source":"https://example.invalid/module.zip","source_revision":"0123456789abcdef"`+output+`}`, &body))
+		require.Nil(t, body.ArtifactDigest, "omitted external digest must not be invented")
+		if output == "" {
+			require.Nil(t, body.OutputSchema)
+		} else {
+			require.NotNil(t, body.OutputSchema)
+		}
+		importBody := moduleVersionPublishBody(cp.CoreModuleVersionDetail{OutputSchema: body.OutputSchema})
+		state := ModuleVersionResourceModel{Definition: jsontypes.NewNormalizedNull()}
+		require.NoError(t, applyModuleVersionDefinition(&state, importBody))
+		var fields map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal([]byte(state.Definition.ValueString()), &fields))
+		_, present := fields["output_schema"]
+		require.Equal(t, output != "", present)
+		if present {
+			encoded, err := json.Marshal(body.OutputSchema)
+			require.NoError(t, err)
+			require.JSONEq(t, string(encoded), string(fields["output_schema"]))
+		}
+	}
+}
 
 func TestModuleVersionLifecycleAction(t *testing.T) {
 	t.Parallel()

@@ -8,7 +8,8 @@ provider_binary="${2:?provide the locally built provider executable}"
 scenario="${3:-catalogue}"
 case "$client" in terraform | tofu) ;; *) echo "Choose terraform or tofu" >&2; exit 1 ;; esac
 case "$scenario" in
-  catalogue) fixture="module-management-cli" ;;
+  catalogue) fixture="module-management-cli"; export TF_VAR_external_artifact=false ;;
+  catalogue-external) fixture="module-management-cli"; export TF_VAR_external_artifact=true ;;
   pin)
     fixture="module-pin-cli"
     : "${TF_VAR_project_uuid:?provide the dedicated deployed test Project UUID}"
@@ -16,7 +17,7 @@ case "$scenario" in
     : "${TF_VAR_module_uuid:?provide the effective Module UUID}"
     : "${TF_VAR_version_uuid:?provide its exact effective Version UUID}"
     ;;
-  *) echo "Choose catalogue or pin" >&2; exit 1 ;;
+  *) echo "Choose catalogue, catalogue-external or pin" >&2; exit 1 ;;
 esac
 case "${PO_API_URL:-}" in
   http://127.0.0.1:* | http://localhost:*) ;;
@@ -114,6 +115,11 @@ run "publish and atomically promote" apply -auto-approve
 run "observe promoted lifecycle" apply -refresh-only -auto-approve
 no_op_plan
 assert_state 'any(.values.root_module.resources[]; .address == "platform-orchestrator_module_version.release" and .values.lifecycle_status == "default")'
+assert_state 'any(.values.root_module.resources[]; .address == "platform-orchestrator_resource_type.release" and (.values.module_contract | fromjson | .required == ["output_schema"]))'
+assert_state 'any(.values.root_module.resources[]; .address == "platform-orchestrator_module_version.release" and (.values.definition | fromjson | .output_schema.type == "object" and (has("artifact_digest") | not)))'
+if [ "$scenario" = "catalogue-external" ]; then
+  assert_state 'any(.values.root_module.resources[]; .address == "platform-orchestrator_module_version.release" and .values.verification_status == "unverified" and (.values.definition | fromjson | .module_source != "inline" and has("source_revision")))'
+fi
 version_id="$("$client" show -json | jq -er '.values.root_module.resources[] | select(.address == "platform-orchestrator_module_version.release") | .values.id')"
 
 for state in archived active archived active; do
@@ -128,6 +134,7 @@ run "import retained Resource Type" import platform-orchestrator_resource_type.r
 run "import retained Provider" import platform-orchestrator_provider.release "random.$TF_VAR_catalogue_id"
 run "import retained Module" import platform-orchestrator_module_catalogue_entry.release "$TF_VAR_catalogue_id"
 run "import retained Version" import platform-orchestrator_module_version.release "$TF_VAR_catalogue_id/1.0.0"
+assert_state 'any(.values.root_module.resources[]; .address == "platform-orchestrator_module_version.release" and (.values.definition | fromjson | .output_schema.type == "object" and (has("artifact_digest") | not)))'
 assert_state 'any(.values.root_module.resources[]; .address == "platform-orchestrator_module_catalogue_entry.release" and .values.status == "archived")'
 assert_state "any(.values.root_module.resources[]; .address == \"platform-orchestrator_module_version.release\" and .values.id == \"$version_id\" and .values.lifecycle_status == \"default\")"
 run "re-adopt and unarchive" apply -auto-approve

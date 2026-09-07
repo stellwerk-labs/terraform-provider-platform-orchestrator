@@ -42,6 +42,7 @@ resource "platform-orchestrator_resource_type" "resource_type" {
 - `deletion_policy` (String) Destroy behavior: delete (default) requests API deletion and reports references that block it; retain removes only Terraform ownership without modifying the API resource. Select retain explicitly for dependencies of permanently retained Module history. Import retained identities before managing them again.
 - `description` (String) The description of the Resource Type.
 - `is_developer_accessible` (Boolean) Indicates if this resource type is for developers to use in the manifest. Resource types with this flag set to false, will not be available as types of resources in a manifest.
+- `module_contract` (String) Optional immutable, bounded OpenAPI 3.0 Schema Object over module_inputs, module_params, provider_mapping, dependencies, coprovisioned and output_schema. Validated offline by Core; no external artifact inspection. Omission preserves imported contracts and imposes no additional constraints on new Resource Types.
 - `status` (String) Catalogue status: active or archived. Archival blocks only new Module bindings.
 - `transition_reason` (String) Mandatory reason when status changes.
 

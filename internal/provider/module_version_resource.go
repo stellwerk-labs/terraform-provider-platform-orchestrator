@@ -54,7 +54,7 @@ func (r *ModuleVersionResource) Schema(_ context.Context, _ resource.SchemaReque
 			"id":                  schema.StringAttribute{Computed: true, MarkdownDescription: "Immutable Module Version UUID."},
 			"module_id":           schema.StringAttribute{Required: true, MarkdownDescription: "Immutable Module technical slug.", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
 			"semantic_version":    schema.StringAttribute{Required: true, MarkdownDescription: "Canonical SemVer identity. New publications begin Proposed and Unverified.", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
-			"definition":          schema.StringAttribute{Required: true, CustomType: jsontypes.NormalizedType{}, MarkdownDescription: "JSON ModuleVersionPublishBody containing source, inputs, parameters, provider mappings, dependencies, co-provisioned resources, optional external artifact digest/source revision, and release notes.", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
+			"definition":          schema.StringAttribute{Required: true, CustomType: jsontypes.NormalizedType{}, MarkdownDescription: "JSON ModuleVersionPublishBody containing source, inputs, parameters, provider mappings, dependencies, co-provisioned resources, author-declared output_schema and release notes. New publications bound to a nonempty Resource Type output_schema require the exact same output declaration. External sources require source_revision; artifact_digest is optional and immutable when supplied, and forbidden for inline source. Unknown definition fields are rejected.", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
 			"lifecycle_status":    schema.StringAttribute{Optional: true, Computed: true, MarkdownDescription: "Desired Core lifecycle status. Valid values are proposed, default, deprecated and defective; transitions remain server validated.", Validators: []validator.String{stringvalidator.OneOf("proposed", "default", "deprecated", "defective")}},
 			"transition_reason":   schema.StringAttribute{Optional: true, MarkdownDescription: "Human-readable reason used when lifecycle_status requests a transition after publication."},
 			"resource_version":    schema.Int64Attribute{Computed: true, MarkdownDescription: "Optimistic-concurrency version of the lifecycle record."},
@@ -92,7 +92,7 @@ func (r *ModuleVersionResource) Create(ctx context.Context, req resource.CreateR
 		return
 	}
 	var body cp.ModuleVersionPublishBody
-	if err := json.Unmarshal([]byte(plan.Definition.ValueString()), &body); err != nil {
+	if err := decodeModuleVersionDefinition(plan.Definition.ValueString(), &body); err != nil {
 		resp.Diagnostics.AddError(PO_INPUT_ERR, "definition is not a valid Module Version publication: "+err.Error())
 		return
 	}
@@ -118,6 +118,15 @@ func (r *ModuleVersionResource) Create(ctx context.Context, req resource.CreateR
 		}
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+}
+
+func decodeModuleVersionDefinition(definition string, body *cp.ModuleVersionPublishBody) error {
+	if !json.Valid([]byte(definition)) || !strings.HasPrefix(strings.TrimSpace(definition), "{") {
+		return fmt.Errorf("definition must contain one JSON object")
+	}
+	decoder := json.NewDecoder(strings.NewReader(definition))
+	decoder.DisallowUnknownFields()
+	return decoder.Decode(body)
 }
 
 func (r *ModuleVersionResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
@@ -254,6 +263,7 @@ func moduleVersionPublishBody(detail cp.CoreModuleVersionDetail) cp.ModuleVersio
 		Coprovisioned: detail.Coprovisioned, Dependencies: detail.Dependencies, Description: detail.Description,
 		ModuleInputs: detail.ModuleInputs, ModuleParams: detail.ModuleParams, ModuleSource: detail.ModuleSource,
 		ModuleSourceCode: detail.ModuleSourceCode, ProviderMapping: detail.ProviderMapping, ReleaseNotes: detail.Version.ReleaseNotes,
+		OutputSchema:    detail.OutputSchema,
 		SemanticVersion: detail.Version.OpaqueVersionId,
 		SourceRevision: func() *string {
 			if detail.Version.SourceRevision == "" {

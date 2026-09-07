@@ -66,8 +66,24 @@ A Version definition supplies all fixed inputs, parameter declarations,
 provider mappings, dependencies, co-provisioned resources and module source.
 Use a fresh SemVer for changed executable content, never edit an existing
 publication. Inline source omits `artifact_digest`. Referenced artifacts require
-their real canonical SHA-256 digest and source revision; the digest protects the
-external artifact, not the entire Orchestrator definition.
+an exact `source_revision`; their canonical SHA-256 `artifact_digest` is optional.
+When supplied, the digest is immutable and protects the external artifact, not
+the entire Orchestrator definition. Omission does not imply verification.
+Version metadata reads retain the stable `artifact_digest: ""` sentinel for an
+absent claim. The provider omits that sentinel when reconstructing an imported
+publication definition, preserving the distinction between absence and a claim.
+
+Resource Types may define an immutable `module_contract`, a bounded OpenAPI 3.0
+Schema Object over fixed inputs, parameters, provider mappings, dependencies,
+co-provisioned resources and declared outputs. This is offline validation of
+the author-declared interface, not inspection of an external artifact. Omitted
+contracts impose no additional restrictions on existing Resource Types.
+
+Every new managed publication bound to a nonempty Resource Type `output_schema`
+must include an exactly matching `output_schema` in its `definition`. Object
+key order and whitespace do not matter; array order does. Historical versions
+remain unchanged, without invented output declarations. The provider rejects
+unknown definition fields rather than silently dropping them.
 
 Only one Proposed version may exist per Module. Prereleases cannot become
 Default. Stable graduation publishes a separate stable Proposed Version and
@@ -132,3 +148,22 @@ lifecycle input or permission and retry; do not recreate the Version under a new
 identity to hide the failure. The same applies to catalogue creation followed by
 failed archival. Investigate unexpected missing immutable Versions rather than
 silently recreating history.
+
+## Local client acceptance
+
+Build the provider locally and configure a disposable loopback Core API through
+`PO_API_URL`, `PO_ORG_ID` and `PO_AUTH_TOKEN`, without printing or committing the
+token. The acceptance helper exercises real Terraform or OpenTofu, including
+publication, lifecycle changes, retained teardown, import and no-op plans:
+
+```shell
+bash scripts/test-module-management-clients.sh terraform /absolute/path/terraform-provider-platform-orchestrator catalogue
+bash scripts/test-module-management-clients.sh tofu /absolute/path/terraform-provider-platform-orchestrator catalogue-external
+```
+
+`catalogue-external` also proves publication and import with an omitted external
+digest. Both cases validate declared output and Resource Type contract retention.
+These publication fixtures do not execute infrastructure or claim to verify the
+external artifact. Protected temporary state and command logs are retained for
+inspection. Only new, uniquely named catalogue records are created; no database
+reset occurs.

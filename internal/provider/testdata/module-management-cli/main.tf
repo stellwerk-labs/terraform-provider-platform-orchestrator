@@ -15,6 +15,11 @@ variable "catalogue_status" {
   default = "active"
 }
 
+variable "external_artifact" {
+  type    = bool
+  default = false
+}
+
 provider "platform-orchestrator" {}
 
 resource "platform-orchestrator_provider" "release" {
@@ -29,6 +34,7 @@ resource "platform-orchestrator_provider" "release" {
 resource "platform-orchestrator_resource_type" "release" {
   id              = var.catalogue_id
   output_schema   = jsonencode({ type = "object" })
+  module_contract = jsonencode({ type = "object", required = ["output_schema"] })
   deletion_policy = "retain"
 }
 
@@ -44,15 +50,21 @@ resource "platform-orchestrator_module_catalogue_entry" "release" {
 resource "platform-orchestrator_module_version" "release" {
   module_id        = platform-orchestrator_module_catalogue_entry.release.id
   semantic_version = "1.0.0"
-  definition = jsonencode({
+  definition = jsonencode(merge({
+    semantic_version = "1.0.0"
+    output_schema    = jsondecode(platform-orchestrator_resource_type.release.output_schema)
+    module_inputs    = {}
+    module_params    = {}
+    provider_mapping = { random = "random.${platform-orchestrator_provider.release.id}" }
+    dependencies     = {}
+    coprovisioned    = []
+    }, var.external_artifact ? {
+    module_source   = "git::https://github.com/stellwerk-labs/first-deployment//modules/postgres?ref=4b17d97474a6cdb51d4da1b42dd041f6d4e03aee"
+    source_revision = "4b17d97474a6cdb51d4da1b42dd041f6d4e03aee"
+    } : {
     module_source      = "inline"
     module_source_code = "output \"labels\" { value = { managed_by = \"stellwerk\" } }"
-    module_inputs      = {}
-    module_params      = {}
-    provider_mapping   = { random = "random.${platform-orchestrator_provider.release.id}" }
-    dependencies       = {}
-    coprovisioned      = []
-  })
+  }))
 }
 
 resource "platform-orchestrator_module_version_lifecycle_transaction" "release" {

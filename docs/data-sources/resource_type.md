@@ -29,4 +29,5 @@ data "platform-orchestrator_resource_type" "resource_type" {
 
 - `description` (String) The description of the Resource Type.
 - `is_developer_accessible` (Boolean) Indicates if this resource type is for developers to use in the manifest. Resource types with this flag set to false, will not be available as types of resources in a manifest.
+- `module_contract` (String) Immutable declarative Module interface contract, when present. Absence is retained as null, not an invented empty contract.
 - `output_schema` (String) The JSON schema for output parameters.

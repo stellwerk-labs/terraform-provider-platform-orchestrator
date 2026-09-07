@@ -97,6 +97,7 @@ func moduleManagementAcceptanceConfig(id, status, reason, description, lifecycle
 resource "platform-orchestrator_resource_type" "release" {
   id = %[1]q
   output_schema = jsonencode({ type = "object" })
+  module_contract = jsonencode({ type = "object", required = ["output_schema"] })
   deletion_policy = "retain"
   status = %[2]q
   transition_reason = %[3]q
@@ -122,6 +123,7 @@ resource "platform-orchestrator_module_version" "release" {
   semantic_version = "1.0.0"
   definition = jsonencode({
     semantic_version = "1.0.0"
+    output_schema = jsondecode(platform-orchestrator_resource_type.release.output_schema)
     module_source = "inline"
     module_source_code = "output \"value\" { value = \"ready\" }"
     module_inputs = {}
@@ -179,6 +181,7 @@ resource "platform-orchestrator_module_version" "successor" {
   module_id = platform-orchestrator_module_catalogue_entry.release.id
   semantic_version = "1.1.0"
   definition = jsonencode({
+    output_schema = jsondecode(platform-orchestrator_resource_type.release.output_schema)
     module_source = "inline"
     module_source_code = "output \"value\" { value = \"updated\" }"
     module_inputs = {}
