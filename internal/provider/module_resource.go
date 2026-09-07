@@ -108,8 +108,9 @@ func (r *ModuleResource) Metadata(ctx context.Context, req resource.MetadataRequ
 
 func (r *ModuleResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		DeprecationMessage: "Legacy mutable Module authoring is unsupported by Core Module Version Management. Keep this resource readable while transferring the existing slug to platform-orchestrator_module_catalogue_entry, then publish complete immutable platform-orchestrator_module_version resources. See the module-management-upgrade guide; do not destroy the old object or invent a SemVer for v0.",
 		// This description is used by the documentation generator and the language server.
-		MarkdownDescription: "Module resource",
+		MarkdownDescription: "Deprecated legacy mutable Module resource. Existing state remains readable for ownership migration, but Core Module Version Management rejects its create/update writes. Use module_catalogue_entry plus immutable module_version resources and explicit promotion. See the module-management-upgrade guide before changing an existing configuration.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Required:            true,
@@ -369,6 +370,9 @@ func (r *ModuleResource) Create(ctx context.Context, req resource.CreateRequest,
 	}
 
 	if httpResp.StatusCode() != 201 {
+		if addLegacyModuleWriteDiagnostic(&resp.Diagnostics, httpResp.StatusCode(), httpResp.Body) {
+			return
+		}
 		resp.Diagnostics.AddError(PO_API_ERR, fmt.Sprintf("Unable to create module, unexpected status code: %d, body: %s", httpResp.StatusCode(), httpResp.Body))
 		return
 	}
@@ -482,6 +486,9 @@ func (r *ModuleResource) Update(ctx context.Context, req resource.UpdateRequest,
 	}
 
 	if httpResp.StatusCode() != 200 {
+		if addLegacyModuleWriteDiagnostic(&resp.Diagnostics, httpResp.StatusCode(), httpResp.Body) {
+			return
+		}
 		resp.Diagnostics.AddError(PO_API_ERR, fmt.Sprintf("Unable to update module, unexpected status code: %d, body: %s", httpResp.StatusCode(), httpResp.Body))
 		return
 	}
@@ -519,11 +526,25 @@ func (r *ModuleResource) Delete(ctx context.Context, req resource.DeleteRequest,
 		// If the resource is not found, we can consider it deleted.
 		resp.Diagnostics.AddWarning(PO_RESOURCE_NOT_FOUND_ERR, fmt.Sprintf("Module with ID %s not found, assuming it has been deleted.", data.Id.ValueString()))
 	default:
+		var problem platformAPIError
+		if httpResp.StatusCode() == http.StatusConflict && json.Unmarshal(httpResp.Body, &problem) == nil && problem.Code == "module_history_retained" {
+			resp.Diagnostics.AddError("Legacy Module ownership migration required", "This Module has permanently retained version history. Back up Terraform state, transfer ownership from platform-orchestrator_module to platform-orchestrator_module_catalogue_entry using state rm and import, then use the catalogue resource's reasoned archival teardown. Do not delete immutable versions or recreate this slug.")
+			return
+		}
 		resp.Diagnostics.AddError(PO_API_ERR, fmt.Sprintf("Unable to delete module, unexpected status code: %d, body: %s", httpResp.StatusCode(), httpResp.Body))
 		return
 	}
 
 	resp.State.RemoveResource(ctx)
+}
+
+func addLegacyModuleWriteDiagnostic(diagnostics *diag.Diagnostics, status int, body []byte) bool {
+	var problem platformAPIError
+	if status != http.StatusBadRequest || json.Unmarshal(body, &problem) != nil || problem.Message != "semantic_version is required while Core Module Version Management is enabled" {
+		return false
+	}
+	diagnostics.AddError("Legacy Module authoring is unavailable", "This server requires immutable SemVer publication. Replace new platform-orchestrator_module configurations with platform-orchestrator_module_catalogue_entry and platform-orchestrator_module_version, then explicitly promote the Proposed Version. For an existing Module, back up state and import the existing slug into the catalogue resource before removing legacy ownership. Legacy v0 remains unchanged and receives no invented SemVer or artifact digest. See the module-management-upgrade guide.")
+	return true
 }
 
 func (r *ModuleResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

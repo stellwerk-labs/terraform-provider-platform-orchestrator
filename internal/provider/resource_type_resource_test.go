@@ -1,9 +1,8 @@
 package provider
 
 import (
-	"encoding/json"
 	"fmt"
-	"reflect"
+	"regexp"
 	"testing"
 	"time"
 
@@ -59,49 +58,12 @@ func TestAccResourceTypeResource(t *testing.T) {
 					),
 				},
 			},
-			// Update testing
+			// Published contracts cannot be replaced under the same identity.
 			{
-				Config: testAccResourceTypeResourceConfig(resourceTypeId, outputSchema, &description, &isDeveloperAccessibleFalse),
-				ConfigStateChecks: []statecheck.StateCheck{
-					statecheck.ExpectKnownValue(
-						"platform-orchestrator_resource_type.test",
-						tfjsonpath.New("id"),
-						knownvalue.StringExact(resourceTypeId),
-					),
-					statecheck.ExpectKnownValue(
-						"platform-orchestrator_resource_type.test",
-						tfjsonpath.New("description"),
-						knownvalue.StringExact("Example Resource Type"),
-					),
-					statecheck.ExpectKnownValue(
-						"platform-orchestrator_resource_type.test",
-						tfjsonpath.New("output_schema"),
-						knownvalue.StringFunc(func(v string) error {
-							var obj1 interface{}
-							var obj2 interface{}
-
-							if err := json.Unmarshal([]byte(outputSchema), &obj1); err != nil {
-								return fmt.Errorf("failed to unmarshal reference output schema: %w", err)
-							}
-
-							if err := json.Unmarshal([]byte(v), &obj2); err != nil {
-								return fmt.Errorf("failed to unmarshal received output schema: %w", err)
-							}
-
-							if !reflect.DeepEqual(obj1, obj2) {
-								return fmt.Errorf("output schemas are not equal: %v != %v", obj1, obj2)
-							}
-
-							return nil
-						}),
-					),
-					statecheck.ExpectKnownValue(
-						"platform-orchestrator_resource_type.test",
-						tfjsonpath.New("is_developer_accessible"),
-						knownvalue.Bool(false),
-					),
-				},
+				Config:      testAccResourceTypeResourceConfig(resourceTypeId, outputSchema, &description, &isDeveloperAccessibleFalse),
+				ExpectError: regexp.MustCompile("Resource Type contract is immutable"),
 			},
+			{Config: testAccResourceTypeResourceConfig(resourceTypeId, "{}", nil, nil)},
 			{
 				ResourceName: "platform-orchestrator_resource_type.test",
 				ImportState:  true,

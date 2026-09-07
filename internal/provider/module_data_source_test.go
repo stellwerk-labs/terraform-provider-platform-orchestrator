@@ -91,7 +91,7 @@ func TestAccModuleDataSourceWithComplexStructure(t *testing.T) {
 					statecheck.ExpectKnownValue(
 						"data.platform-orchestrator_module.test_complex",
 						tfjsonpath.New("module_source"),
-						knownvalue.StringExact("git::https://github.com/test/postgres-module"),
+						knownvalue.StringExact("git::https://github.com/stellwerk-labs/first-deployment//modules/postgres?ref=4b17d97474a6cdb51d4da1b42dd041f6d4e03aee"),
 					),
 					// Verify coprovisioned structure
 					statecheck.ExpectKnownValue(
@@ -133,13 +133,20 @@ resource "platform-orchestrator_resource_type" "aws_rds" {
   id = "` + awsRdsTypeId + `"
   description = "Postgres Database"
   output_schema = jsonencode({})
+  deletion_policy = "retain"
 }
 
-resource "platform-orchestrator_module" "test_source_code" {
+resource "platform-orchestrator_module_catalogue_entry" "test_source_code" {
   id = "` + id + `"
   description = "Test Module with source code for data source"
   resource_type = platform-orchestrator_resource_type.aws_rds.id
-
+}
+resource "platform-orchestrator_module_version" "test_source_code" {
+  module_id = platform-orchestrator_module_catalogue_entry.test_source_code.id
+  semantic_version = "1.0.0"
+  lifecycle_status = "default"
+  transition_reason = "Data source acceptance release"
+  definition = jsonencode({
   module_source = "inline"
   module_source_code = <<-EOT
 resource "aws_db_instance" "example" {
@@ -147,10 +154,17 @@ resource "aws_db_instance" "example" {
   engine     = "postgres"
 }
 EOT
+  module_inputs = {}
+  module_params = {}
+  provider_mapping = {}
+  dependencies = {}
+  coprovisioned = []
+  })
 }
 
 data "platform-orchestrator_module" "test_source_code" {
-  id = platform-orchestrator_module.test_source_code.id
+  id = platform-orchestrator_module_catalogue_entry.test_source_code.id
+  depends_on = [platform-orchestrator_module_version.test_source_code]
 }
 `
 }
@@ -163,36 +177,49 @@ resource "platform-orchestrator_provider" "test_aws" {
   provider_type = "aws"
   source = "hashicorp/aws"
   version_constraint = ">= 4.0.0"
+  deletion_policy = "retain"
 }
 
 resource "platform-orchestrator_resource_type" "postgres" {
   id = "` + postgresTypeId + `"
   description = "Postgres Database"
   output_schema = jsonencode({})
+  deletion_policy = "retain"
 }
 
 resource "platform-orchestrator_resource_type" "logging" {
   id = "` + loggingTypeId + `"
   description = "Logging Resource"
   output_schema = jsonencode({})
+  deletion_policy = "retain"
 }
 
 resource "platform-orchestrator_resource_type" "aws_vpc" {
   id = "` + awsVpcTypeId + `"
   description = "AWS VPC"
   output_schema = jsonencode({})
+  deletion_policy = "retain"
 }
 
-resource "platform-orchestrator_module" "test_complex" {
+resource "platform-orchestrator_module_catalogue_entry" "test_complex" {
   id = "` + moduleId + `"
   description = "Test Module with complex structure"
   resource_type = platform-orchestrator_resource_type.postgres.id
-  module_source = "git::https://github.com/test/postgres-module"
+}
+resource "platform-orchestrator_module_version" "test_complex" {
+  module_id = platform-orchestrator_module_catalogue_entry.test_complex.id
+  semantic_version = "1.0.0"
+  lifecycle_status = "default"
+  transition_reason = "Data source acceptance release"
+  definition = jsonencode({
+  module_source = "git::https://github.com/stellwerk-labs/first-deployment//modules/postgres?ref=4b17d97474a6cdb51d4da1b42dd041f6d4e03aee"
+  artifact_digest = "sha256:b29abd5cf0129c90f9c1bad753c64644121ac8101195f51751ec88a4433a2748"
+  source_revision = "4b17d97474a6cdb51d4da1b42dd041f6d4e03aee"
   
-  module_inputs = jsonencode({
+  module_inputs = {
     instance_class = "db.t3.micro"
     allocated_storage = 20
-  })
+  }
 
   module_params = {
     animal = {
@@ -209,9 +236,9 @@ resource "platform-orchestrator_module" "test_complex" {
   coprovisioned = [{
     type = platform-orchestrator_resource_type.logging.id
     is_dependent_on_current = true
-    params = jsonencode({
+    params = {
       log_group = "/aws/rds/postgres"
-    })
+    }
   }]
 
   dependencies = {
@@ -220,10 +247,12 @@ resource "platform-orchestrator_module" "test_complex" {
       class = "default"
     }
   }
+  })
 }
 
 data "platform-orchestrator_module" "test_complex" {
-  id = platform-orchestrator_module.test_complex.id
+  id = platform-orchestrator_module_catalogue_entry.test_complex.id
+  depends_on = [platform-orchestrator_module_version.test_complex]
 }
 `
 }

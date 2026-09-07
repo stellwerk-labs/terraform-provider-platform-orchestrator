@@ -179,7 +179,7 @@ func (r *EnvironmentTypeResource) Update(ctx context.Context, req resource.Updat
 	}
 
 	httpResp, err := r.cpClient.UpdateEnvironmentTypeWithResponse(ctx, r.orgId, data.Id.ValueString(), cp.UpdateEnvironmentTypeJSONRequestBody{
-		DisplayName: data.DisplayName.ValueString(),
+		DisplayName: ref.Ref(data.DisplayName.ValueString()),
 	})
 	if err != nil {
 		resp.Diagnostics.AddError(PO_CLIENT_ERR, fmt.Sprintf("Unable to update environment type, got error: %s", err))

@@ -61,6 +61,7 @@ resource "platform-orchestrator_deployment" "deployment" {
   project_id   = platform-orchestrator_project.project.id
   env_id  = platform-orchestrator_environment.env.id
   mode = "deploy"
+  wait_for = false
   manifest = jsonencode({
     workloads = {
       main = {
@@ -92,8 +93,18 @@ func TestAccDeploymentResource(t *testing.T) {
 				ExpectNonEmptyPlan: true,
 			},
 			{
-				Config:      deploymentScenario,
-				ExpectError: regexp.MustCompile(`.*kubernetes agent not reachable.*`),
+				Config: deploymentScenario,
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr("platform-orchestrator_deployment.deployment", "status", "executing"),
+					resource.TestCheckResourceAttr("platform-orchestrator_deployment.deployment", "wait_for", "false"),
+					resource.TestCheckResourceAttrSet("platform-orchestrator_deployment.deployment", "id"),
+				),
+			},
+			{
+				// Disconnected agents consume the durable command after reconnecting.
+				// Refresh must preserve the accepted operation, not invent a failure.
+				RefreshState: true,
+				Check:        resource.TestCheckResourceAttr("platform-orchestrator_deployment.deployment", "status", "executing"),
 			},
 		},
 	})

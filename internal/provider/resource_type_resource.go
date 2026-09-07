@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"strings"
 
 	cp "github.com/stellwerk-labs/terraform-provider-platform-orchestrator/internal/clients/platform-orchestrator-cp"
 
 	"github.com/hashicorp/terraform-plugin-framework-jsontypes/jsontypes"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -24,6 +26,7 @@ import (
 // Ensure provider defined types fully satisfy framework interfaces.
 var _ resource.Resource = &ResourceTypeResource{}
 var _ resource.ResourceWithImportState = &ResourceTypeResource{}
+var _ resource.ResourceWithModifyPlan = &ResourceTypeResource{}
 
 func NewResourceTypeResource() resource.Resource {
 	return &ResourceTypeResource{}
@@ -41,6 +44,10 @@ type ResourceTypeResourceModel struct {
 	Description           types.String         `tfsdk:"description"`
 	OutputSchema          jsontypes.Normalized `tfsdk:"output_schema"`
 	IsDeveloperAccessible types.Bool           `tfsdk:"is_developer_accessible"`
+	Status                types.String         `tfsdk:"status"`
+	TransitionReason      types.String         `tfsdk:"transition_reason"`
+	ResourceVersion       types.Int64          `tfsdk:"resource_version"`
+	DeletionPolicy        types.String         `tfsdk:"deletion_policy"`
 }
 
 func (r *ResourceTypeResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -50,9 +57,13 @@ func (r *ResourceTypeResource) Metadata(ctx context.Context, req resource.Metada
 func (r *ResourceTypeResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		// This description is used by the documentation generator and the language server.
-		MarkdownDescription: "Resource Type resource",
+		MarkdownDescription: "Manages an immutable Core Resource Type contract. Changing its contract requires a new identity. Archive blocks new Module bindings while preserving existing Modules. Referenced identities cannot be deleted; explicitly set deletion_policy=retain to relinquish Terraform ownership without deletion.",
 
 		Attributes: map[string]schema.Attribute{
+			"deletion_policy":   retainedDependencyPolicyAttribute(),
+			"status":            schema.StringAttribute{Optional: true, Computed: true, Validators: []validator.String{stringvalidator.OneOf("active", "archived")}, MarkdownDescription: "Catalogue status: active or archived. Archival blocks only new Module bindings."},
+			"transition_reason": schema.StringAttribute{Optional: true, MarkdownDescription: "Mandatory reason when status changes."},
+			"resource_version":  schema.Int64Attribute{Computed: true, MarkdownDescription: "Optimistic-concurrency revision."},
 			"id": schema.StringAttribute{
 				MarkdownDescription: "The unique identifier for the Resource Type.",
 				Required:            true,
@@ -116,6 +127,11 @@ func (r *ResourceTypeResource) Create(ctx context.Context, req resource.CreateRe
 	if resp.Diagnostics.HasError() {
 		return
 	}
+	desiredStatus := data.Status.ValueString()
+	if desiredStatus == "archived" && strings.TrimSpace(data.TransitionReason.ValueString()) == "" {
+		resp.Diagnostics.AddError(PO_INPUT_ERR, "transition_reason is required when creating an archived Resource Type")
+		return
+	}
 
 	var description *string
 	if v := data.Description.ValueString(); v != "" {
@@ -147,14 +163,21 @@ func (r *ResourceTypeResource) Create(ctx context.Context, req resource.CreateRe
 		return
 	}
 
-	data, err = toResourceTypeModel(*httpResp.JSON201)
-	if err != nil {
-		resp.Diagnostics.AddError(PO_PROVIDER_ERR, fmt.Sprintf("Unable to convert resource type response, got error: %s", err))
+	if !applyResourceTypeState(&data, *httpResp.JSON201, &resp.Diagnostics) {
 		return
 	}
 
 	// Save data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	if desiredStatus == "archived" {
+		if !r.transition(ctx, &data, cp.ChangeResourceTypeCatalogueStatusParamsCatalogueActionArchive, &resp.Diagnostics) {
+			return
+		}
+		resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+	}
 }
 
 func (r *ResourceTypeResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
@@ -184,9 +207,7 @@ func (r *ResourceTypeResource) Read(ctx context.Context, req resource.ReadReques
 		return
 	}
 
-	data, err = toResourceTypeModel(*httpResp.JSON200)
-	if err != nil {
-		resp.Diagnostics.AddError(PO_PROVIDER_ERR, fmt.Sprintf("Unable to convert resource type response, got error: %s", err))
+	if !applyResourceTypeState(&data, *httpResp.JSON200, &resp.Diagnostics) {
 		return
 	}
 
@@ -195,43 +216,72 @@ func (r *ResourceTypeResource) Read(ctx context.Context, req resource.ReadReques
 }
 
 func (r *ResourceTypeResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var data ResourceTypeResourceModel
+	var data, state ResourceTypeResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	var outputSchema map[string]interface{}
-	diags := data.OutputSchema.Unmarshal(&outputSchema)
-	if diags.HasError() {
-		resp.Diagnostics.Append(diags...)
+	if resourceTypeContractChanged(state, data) {
+		resp.Diagnostics.AddError("Resource Type contract is immutable", "Create a new Resource Type ID and bind a new Module identity to it. Existing Resource Type descriptions, output schemas and developer-accessible contracts cannot be changed or reused.")
 		return
 	}
-
-	httpResp, err := r.cpClient.UpdateResourceTypeWithResponse(ctx, r.orgId, data.Id.ValueString(), cp.UpdateResourceTypeJSONRequestBody{
-		Description:           data.Description.ValueStringPointer(),
-		OutputSchema:          &outputSchema,
-		IsDeveloperAccessible: data.IsDeveloperAccessible.ValueBoolPointer(),
-	})
-	if err != nil {
-		resp.Diagnostics.AddError(PO_CLIENT_ERR, fmt.Sprintf("Unable to update resource type, got error: %s", err))
-		return
+	data.ResourceVersion = state.ResourceVersion
+	if data.Status.IsUnknown() {
+		data.Status = state.Status
 	}
-
-	if httpResp.StatusCode() != 200 {
-		resp.Diagnostics.AddError(PO_API_ERR, fmt.Sprintf("Unable to update resource type, unexpected status code: %d, body: %s", httpResp.StatusCode(), httpResp.Body))
-		return
+	if !data.Status.Equal(state.Status) {
+		if strings.TrimSpace(data.TransitionReason.ValueString()) == "" {
+			resp.Diagnostics.AddError(PO_INPUT_ERR, "transition_reason is required when Resource Type status changes")
+			return
+		}
+		action := cp.ChangeResourceTypeCatalogueStatusParamsCatalogueActionArchive
+		if data.Status.ValueString() == "active" {
+			action = cp.ChangeResourceTypeCatalogueStatusParamsCatalogueActionUnarchive
+		}
+		if !r.transition(ctx, &data, action, &resp.Diagnostics) {
+			return
+		}
 	}
-
-	data, err = toResourceTypeModel(*httpResp.JSON200)
-	if err != nil {
-		resp.Diagnostics.AddError(PO_PROVIDER_ERR, fmt.Sprintf("Unable to convert resource type response, got error: %s", err))
-		return
-	}
-
-	// Save updated data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+}
+
+func (r *ResourceTypeResource) transition(ctx context.Context, state *ResourceTypeResourceModel, action cp.ChangeResourceTypeCatalogueStatusParamsCatalogueAction, diagnostics *diag.Diagnostics) bool {
+	response, err := r.cpClient.ChangeResourceTypeCatalogueStatusWithResponse(ctx, r.orgId, state.Id.ValueString(), action,
+		&cp.ChangeResourceTypeCatalogueStatusParams{IdempotencyKey: reasonedCommandKey(r.orgId, state.Id.ValueString(), "resource-type-"+string(action), state.ResourceVersion.ValueInt64(), state.TransitionReason.ValueString())},
+		cp.ModuleReasonedCommand{ExpectedResourceVersion: state.ResourceVersion.ValueInt64(), Reason: state.TransitionReason.ValueString()})
+	if err != nil {
+		diagnostics.AddError(PO_CLIENT_ERR, "Unable to change Resource Type catalogue status: "+err.Error())
+		return false
+	}
+	if response.StatusCode() != http.StatusOK || response.JSON200 == nil {
+		addAPIResponseError(diagnostics, "change Resource Type catalogue status", response.StatusCode(), response.Body)
+		return false
+	}
+	return applyResourceTypeState(state, *response.JSON200, diagnostics)
+}
+
+func resourceTypeContractChanged(state, plan ResourceTypeResourceModel) bool {
+	return (!plan.Description.IsUnknown() && !state.Description.Equal(plan.Description)) ||
+		(!plan.OutputSchema.IsUnknown() && !state.OutputSchema.Equal(plan.OutputSchema)) ||
+		(!plan.IsDeveloperAccessible.IsUnknown() && !state.IsDeveloperAccessible.Equal(plan.IsDeveloperAccessible))
+}
+
+func (r *ResourceTypeResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
+	if req.State.Raw.IsNull() || req.Plan.Raw.IsNull() {
+		return
+	}
+	var state, plan ResourceTypeResourceModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() || !state.Id.Equal(plan.Id) {
+		return
+	}
+	if resourceTypeContractChanged(state, plan) {
+		resp.Diagnostics.AddError("Resource Type contract is immutable", "Create a new Resource Type ID and bind a new Module identity to it. Replacing a contract under the same ID is not supported, including when archived.")
+	}
 }
 
 func (r *ResourceTypeResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
@@ -241,6 +291,11 @@ func (r *ResourceTypeResource) Delete(ctx context.Context, req resource.DeleteRe
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
 
 	if resp.Diagnostics.HasError() {
+		return
+	}
+	if data.DeletionPolicy.ValueString() == "retain" {
+		resp.Diagnostics.AddWarning("Resource Type retained", "deletion_policy=retain removed only Terraform ownership. The immutable Resource Type and its Module references remain in Stellwerk; no deletion or archival was attempted.")
+		resp.State.RemoveResource(ctx)
 		return
 	}
 
@@ -286,5 +341,22 @@ func toResourceTypeModel(item cp.ResourceType) (ResourceTypeResourceModel, error
 		Description:           description,
 		OutputSchema:          jsontypes.NewNormalizedValue(string(outputSchemaBytes)),
 		IsDeveloperAccessible: types.BoolValue(item.IsDeveloperAccessible),
+		Status:                types.StringValue(string(item.CatalogueStatus)),
+		ResourceVersion:       types.Int64Value(item.ResourceVersion),
 	}, nil
+}
+
+func applyResourceTypeState(state *ResourceTypeResourceModel, item cp.ResourceType, diagnostics *diag.Diagnostics) bool {
+	result, err := toResourceTypeModel(item)
+	if err != nil {
+		diagnostics.AddError(PO_PROVIDER_ERR, "Unable to convert Resource Type response: "+err.Error())
+		return false
+	}
+	result.DeletionPolicy = state.DeletionPolicy
+	if result.DeletionPolicy.IsNull() {
+		result.DeletionPolicy = types.StringValue("delete")
+	}
+	result.TransitionReason = state.TransitionReason
+	*state = result
+	return true
 }

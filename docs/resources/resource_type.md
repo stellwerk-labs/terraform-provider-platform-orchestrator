@@ -3,12 +3,12 @@
 page_title: "platform-orchestrator_resource_type Resource - platform-orchestrator"
 subcategory: ""
 description: |-
-  Resource Type resource
+  Manages an immutable Core Resource Type contract. Changing its contract requires a new identity. Archive blocks new Module bindings while preserving existing Modules. Referenced identities cannot be deleted; explicitly set deletion_policy=retain to relinquish Terraform ownership without deletion.
 ---
 
 # platform-orchestrator_resource_type (Resource)
 
-Resource Type resource
+Manages an immutable Core Resource Type contract. Changing its contract requires a new identity. Archive blocks new Module bindings while preserving existing Modules. Referenced identities cannot be deleted; explicitly set deletion_policy=retain to relinquish Terraform ownership without deletion.
 
 ## Example Usage
 
@@ -39,8 +39,15 @@ resource "platform-orchestrator_resource_type" "resource_type" {
 
 ### Optional
 
+- `deletion_policy` (String) Destroy behavior: delete (default) requests API deletion and reports references that block it; retain removes only Terraform ownership without modifying the API resource. Select retain explicitly for dependencies of permanently retained Module history. Import retained identities before managing them again.
 - `description` (String) The description of the Resource Type.
 - `is_developer_accessible` (Boolean) Indicates if this resource type is for developers to use in the manifest. Resource types with this flag set to false, will not be available as types of resources in a manifest.
+- `status` (String) Catalogue status: active or archived. Archival blocks only new Module bindings.
+- `transition_reason` (String) Mandatory reason when status changes.
+
+### Read-Only
+
+- `resource_version` (Number) Optimistic-concurrency revision.
 
 ## Import
 

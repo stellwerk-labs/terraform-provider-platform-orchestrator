@@ -130,21 +130,24 @@ func testAccModuleRuleDataSourceConfig(moduleId, resourceTypeId, envTypeId strin
 resource "platform-orchestrator_resource_type" "custom_type" {
   id           =  "` + resourceTypeId + `"
   output_schema = "{}"
+  deletion_policy = "retain"
 }
 
 resource "platform-orchestrator_environment_type" "test" {
   id             = "` + envTypeId + `"
 }
  
-resource "platform-orchestrator_module" "test" {
+resource "platform-orchestrator_module_catalogue_entry" "test" {
   id             = "` + moduleId + `"
   description    = "Test module description"
   resource_type  = platform-orchestrator_resource_type.custom_type.id
-  module_source  = "s3://my-bucket/module.zip"
 }
 
+` + testAccModuleRuleDefaultVersion + `
+
 resource "platform-orchestrator_module_rule" "test" {
-  module_id       = platform-orchestrator_module.test.id
+  module_id       = platform-orchestrator_module_catalogue_entry.test.id
+  depends_on      = [platform-orchestrator_module_version.test]
   resource_class  = "custom-class"
   env_type_id     = platform-orchestrator_environment_type.test.id
 }
@@ -160,21 +163,24 @@ func testAccModuleRuleDataSourceConfigDefault(moduleId, resourceTypeId, envTypeI
 resource "platform-orchestrator_resource_type" "custom_type" {
   id           =  "` + resourceTypeId + `"
   output_schema = "{}"
+  deletion_policy = "retain"
 }
 
 resource "platform-orchestrator_environment_type" "test" {
   id             = "` + envTypeId + `"
 }
  
-resource "platform-orchestrator_module" "test" {
+resource "platform-orchestrator_module_catalogue_entry" "test" {
   id             = "` + moduleId + `"
   description    = "Test module description"
   resource_type  = platform-orchestrator_resource_type.custom_type.id
-  module_source  = "s3://my-bucket/module.zip"
 }
 
+` + testAccModuleRuleDefaultVersion + `
+
 resource "platform-orchestrator_module_rule" "test_default" {
-  module_id       = platform-orchestrator_module.test.id
+  module_id       = platform-orchestrator_module_catalogue_entry.test.id
+  depends_on      = [platform-orchestrator_module_version.test]
 }
 
 data "platform-orchestrator_module_rule" "test_default" {
