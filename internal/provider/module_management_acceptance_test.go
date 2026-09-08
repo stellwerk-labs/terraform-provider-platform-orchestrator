@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/hashicorp/terraform-plugin-testing/plancheck"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
 	"github.com/stretchr/testify/require"
 )
@@ -25,6 +27,7 @@ import (
 func TestAccModuleManagementLifecycle(t *testing.T) {
 	id := fmt.Sprintf("module-release-%d", time.Now().UnixNano())
 	versionID := ""
+	importedVersionResourceVersion := ""
 	client := NewPlatformOrchestratorControlPlaneClient(t)
 	checkRetained := func(_ *terraform.State) error {
 		entry, err := client.GetModuleCatalogueEntryWithResponse(t.Context(), os.Getenv(PO_ORG_ID_ENV_VAR), id)
@@ -76,14 +79,38 @@ func TestAccModuleManagementLifecycle(t *testing.T) {
 			},
 			{ResourceName: "platform-orchestrator_provider.release", ImportState: true, ImportStatePersist: true, ImportStateId: "random." + id},
 			{ResourceName: "platform-orchestrator_module_catalogue_entry.release", ImportState: true, ImportStatePersist: true, ImportStateId: id},
-			{ResourceName: "platform-orchestrator_module_version.release", ImportState: true, ImportStatePersist: true, ImportStateId: id + "/1.0.0"},
+			{
+				ResourceName: "platform-orchestrator_module_version.release", ImportState: true, ImportStatePersist: true, ImportStateId: id + "/1.0.0",
+				ImportStateCheck: moduleVersionImportDefinitionHasNoSemanticVersion(&importedVersionResourceVersion),
+			},
 			{
 				Config: moduleManagementAcceptanceConfig(id, "active", "Reclaim retained catalogue", "Reviewed catalogue", ""),
+				ConfigPlanChecks: resource.ConfigPlanChecks{PreApply: []plancheck.PlanCheck{
+					plancheck.ExpectResourceAction("platform-orchestrator_module_version.release", plancheck.ResourceActionUpdate),
+				}},
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttr("platform-orchestrator_module_catalogue_entry.release", "status", "active"),
 					resource.TestCheckResourceAttr("platform-orchestrator_module_version.release", "lifecycle_status", "default"),
+					func(state *terraform.State) error {
+						currentResourceVersion := state.RootModule().Resources["platform-orchestrator_module_version.release"].Primary.Attributes["resource_version"]
+						if currentResourceVersion != importedVersionResourceVersion {
+							return fmt.Errorf("reason-only import convergence changed state resource_version from %s to %s", importedVersionResourceVersion, currentResourceVersion)
+						}
+						version, err := client.GetModuleVersionWithResponse(t.Context(), os.Getenv(PO_ORG_ID_ENV_VAR), id, versionID)
+						if err != nil {
+							return err
+						}
+						if version.StatusCode() != http.StatusOK || version.JSON200 == nil {
+							return fmt.Errorf("read Module Version after import convergence: HTTP %d", version.StatusCode())
+						}
+						if apiResourceVersion := fmt.Sprintf("%d", version.JSON200.Version.ResourceVersion); apiResourceVersion != importedVersionResourceVersion {
+							return fmt.Errorf("reason-only import convergence changed API resource_version from %s to %s", importedVersionResourceVersion, apiResourceVersion)
+						}
+						return nil
+					},
 				),
 			},
+			{Config: moduleManagementAcceptanceConfig(id, "active", "Reclaim retained catalogue", "Reviewed catalogue", ""), PlanOnly: true},
 		},
 	})
 }
@@ -122,7 +149,6 @@ resource "platform-orchestrator_module_version" "release" {
   module_id = platform-orchestrator_module_catalogue_entry.release.id
   semantic_version = "1.0.0"
   definition = jsonencode({
-    semantic_version = "1.0.0"
     output_schema = jsondecode(platform-orchestrator_resource_type.release.output_schema)
     module_source = "inline"
     module_source_code = "output \"value\" { value = \"ready\" }"
@@ -136,6 +162,30 @@ resource "platform-orchestrator_module_version" "release" {
   transition_reason = %[3]q
 }
 `, id, status, reason, description, lifecycleConfig)
+}
+
+func moduleVersionImportDefinitionHasNoSemanticVersion(resourceVersion *string) resource.ImportStateCheckFunc {
+	return func(states []*terraform.InstanceState) error {
+		for _, state := range states {
+			definition := state.Attributes["definition"]
+			if definition == "" {
+				continue
+			}
+			var fields map[string]json.RawMessage
+			if err := json.Unmarshal([]byte(definition), &fields); err != nil {
+				return err
+			}
+			if _, ok := fields["semantic_version"]; ok {
+				return fmt.Errorf("imported Module Version definition duplicated semantic_version identity")
+			}
+			*resourceVersion = state.Attributes["resource_version"]
+			if *resourceVersion == "" {
+				return fmt.Errorf("imported Module Version resource_version was empty")
+			}
+			return nil
+		}
+		return fmt.Errorf("imported Module Version state not found")
+	}
 }
 
 func TestAccModuleCatalogueEmptyShellRecreation(t *testing.T) {

@@ -75,7 +75,7 @@ func TestModuleVersionLifecycleAction(t *testing.T) {
 func TestApplyModuleVersionDefinitionPreservesConfiguredImmutableJSON(t *testing.T) {
 	t.Parallel()
 
-	configured := `{"module_params":{"required":{"is_optional":false,"type":"map"}}}`
+	configured := `{"semantic_version":"1.0.0","module_params":{"required":{"is_optional":false,"type":"map"}}}`
 	state := ModuleVersionResourceModel{Definition: jsontypes.NewNormalizedValue(configured)}
 	require.NoError(t, applyModuleVersionDefinition(&state, cp.ModuleVersionPublishBody{
 		ModuleParams: map[string]cp.ModuleParamItem{"required": {Type: cp.ModuleParamItemType("map")}},
@@ -93,7 +93,6 @@ func TestApplyModuleVersionDefinitionReconstructsImports(t *testing.T) {
 	}))
 	require.False(t, state.Definition.IsNull())
 	require.JSONEq(t, `{
-		"semantic_version":"1.0.0",
 		"module_source":"inline",
 		"module_inputs":null,
 		"module_params":null,

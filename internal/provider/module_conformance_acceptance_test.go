@@ -40,7 +40,6 @@ resource "platform-orchestrator_module_version" "contract" {
   module_id = platform-orchestrator_module_catalogue_entry.contract.id
   semantic_version = "1.0.0"
   definition = jsonencode({
-    semantic_version = "1.0.0"
     module_source = "git::https://github.com/stellwerk-labs/first-deployment//modules/postgres?ref=4b17d97474a6cdb51d4da1b42dd041f6d4e03aee"
     source_revision = "4b17d97474a6cdb51d4da1b42dd041f6d4e03aee"
     output_schema = jsondecode(platform-orchestrator_resource_type.contract.output_schema)

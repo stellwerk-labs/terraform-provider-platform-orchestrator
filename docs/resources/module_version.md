@@ -17,7 +17,7 @@ Publishes and manages one immutable Core Module Version. The external artifact d
 
 ### Required
 
-- `definition` (String) JSON ModuleVersionPublishBody containing source, inputs, parameters, provider mappings, dependencies, co-provisioned resources, author-declared output_schema and release notes. New publications bound to a nonempty Resource Type output_schema require the exact same output declaration. External sources require source_revision; artifact_digest is optional and immutable when supplied, and forbidden for inline source. Unknown definition fields are rejected.
+- `definition` (String) JSON Module Version definition containing source, inputs, parameters, provider mappings, dependencies, co-provisioned resources, author-declared output_schema and release notes. Declare the SemVer identity with semantic_version, not inside this JSON payload. New publications bound to a nonempty Resource Type output_schema require the exact same output declaration. External sources require source_revision; artifact_digest is optional and immutable when supplied, and forbidden for inline source. Unknown definition fields are rejected.
 - `module_id` (String) Immutable Module technical slug.
 - `semantic_version` (String) Canonical SemVer identity. New publications begin Proposed and Unverified.
 
