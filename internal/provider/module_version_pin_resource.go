@@ -52,7 +52,7 @@ func (r *ModuleVersionPinResource) Metadata(_ context.Context, req resource.Meta
 func (r *ModuleVersionPinResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	replace := []planmodifier.String{stringplanmodifier.RequiresReplace()}
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "Manages one exact Core Environment Module Version Pin. Pin authority is Environment scoped and independent from add-on control. Destroy performs an explicit audited Unpin or permanent discard; override-pending Pins remain operation locked.",
+		MarkdownDescription: "Manages one exact Orchestrator Environment Module Version Pin. Pin authority is Environment scoped and independent from add-on control. Destroy performs an explicit audited Unpin or permanent discard; override-pending Pins remain operation locked.",
 		Attributes: map[string]schema.Attribute{
 			"id":                        schema.StringAttribute{Computed: true},
 			"project_uuid":              schema.StringAttribute{Required: true, PlanModifiers: replace},

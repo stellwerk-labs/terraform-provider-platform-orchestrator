@@ -51,7 +51,7 @@ func (r *ModuleCatalogueEntryResource) Metadata(_ context.Context, req resource.
 func (r *ModuleCatalogueEntryResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	replace := []planmodifier.String{stringplanmodifier.RequiresReplace()}
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "Manages one stable Core Module identity independently of its immutable Versions. Destroy deletes an eligible empty shell; a Module with published history is archived and retained before Terraform relinquishes ownership. Other deletion or archival blockers remain errors. Import a retained Module before managing it again. Archival never mutates deployed infrastructure.",
+		MarkdownDescription: "Manages one stable Orchestrator Module identity independently of its immutable Versions. Destroy deletes an eligible empty shell; a Module with published history is archived and retained before Terraform relinquishes ownership. Other deletion or archival blockers remain errors. Import a retained Module before managing it again. Archival never mutates deployed infrastructure.",
 		Attributes: map[string]schema.Attribute{
 			"id":                schema.StringAttribute{Required: true, MarkdownDescription: "Immutable technical Module slug.", PlanModifiers: replace},
 			"uuid":              schema.StringAttribute{Computed: true, MarkdownDescription: "Immutable Module UUID."},

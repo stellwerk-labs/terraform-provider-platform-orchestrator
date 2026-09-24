@@ -43,7 +43,7 @@ func (d *ModuleVersionDataSource) Metadata(_ context.Context, req datasource.Met
 
 func (d *ModuleVersionDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "Reads one immutable Core Module Version together with its append-only lifecycle, current adoption and optional structural comparison. This is normal OSS Core functionality and does not require an add-on.",
+		MarkdownDescription: "Reads one immutable Orchestrator Module Version together with its append-only lifecycle, current adoption and optional structural comparison.",
 		Attributes: map[string]schema.Attribute{
 			"id":                    schema.StringAttribute{Required: true, MarkdownDescription: "Module Version UUID or canonical SemVer."},
 			"module_id":             schema.StringAttribute{Required: true, MarkdownDescription: "Module technical slug."},

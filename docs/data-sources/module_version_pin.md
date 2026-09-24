@@ -3,12 +3,12 @@
 page_title: "platform-orchestrator_module_version_pin Data Source - platform-orchestrator"
 subcategory: ""
 description: |-
-  Reads one exact Core Environment Module Version Pin and its complete append-only history. This OSS Core data source is independent from add-ons.
+  Reads one exact Orchestrator Environment Module Version Pin and its complete append-only history.
 ---
 
 # platform-orchestrator_module_version_pin (Data Source)
 
-Reads one exact Core Environment Module Version Pin and its complete append-only history. This OSS Core data source is independent from add-ons.
+Reads one exact Orchestrator Environment Module Version Pin and its complete append-only history.
 
 
 

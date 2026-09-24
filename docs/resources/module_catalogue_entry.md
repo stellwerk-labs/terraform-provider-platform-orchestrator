@@ -3,12 +3,12 @@
 page_title: "platform-orchestrator_module_catalogue_entry Resource - platform-orchestrator"
 subcategory: ""
 description: |-
-  Manages one stable Core Module identity independently of its immutable Versions. Destroy deletes an eligible empty shell; a Module with published history is archived and retained before Terraform relinquishes ownership. Other deletion or archival blockers remain errors. Import a retained Module before managing it again. Archival never mutates deployed infrastructure.
+  Manages one stable Orchestrator Module identity independently of its immutable Versions. Destroy deletes an eligible empty shell; a Module with published history is archived and retained before Terraform relinquishes ownership. Other deletion or archival blockers remain errors. Import a retained Module before managing it again. Archival never mutates deployed infrastructure.
 ---
 
 # platform-orchestrator_module_catalogue_entry (Resource)
 
-Manages one stable Core Module identity independently of its immutable Versions. Destroy deletes an eligible empty shell; a Module with published history is archived and retained before Terraform relinquishes ownership. Other deletion or archival blockers remain errors. Import a retained Module before managing it again. Archival never mutates deployed infrastructure.
+Manages one stable Orchestrator Module identity independently of its immutable Versions. Destroy deletes an eligible empty shell; a Module with published history is archived and retained before Terraform relinquishes ownership. Other deletion or archival blockers remain errors. Import a retained Module before managing it again. Archival never mutates deployed infrastructure.
 
 
 

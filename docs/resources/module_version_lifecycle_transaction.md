@@ -3,12 +3,12 @@
 page_title: "platform-orchestrator_module_version_lifecycle_transaction Resource - platform-orchestrator"
 subcategory: ""
 description: |-
-  Applies a non-empty set of Core Module Version lifecycle transitions atomically. No partial transition survives validation, authorisation, concurrency or persistence failure. The resource is an immutable operation receipt.
+  Applies a non-empty set of Orchestrator Module Version lifecycle transitions atomically. No partial transition survives validation, authorisation, concurrency or persistence failure. The resource is an immutable operation receipt.
 ---
 
 # platform-orchestrator_module_version_lifecycle_transaction (Resource)
 
-Applies a non-empty set of Core Module Version lifecycle transitions atomically. No partial transition survives validation, authorisation, concurrency or persistence failure. The resource is an immutable operation receipt.
+Applies a non-empty set of Orchestrator Module Version lifecycle transitions atomically. No partial transition survives validation, authorisation, concurrency or persistence failure. The resource is an immutable operation receipt.
 
 
 
@@ -22,4 +22,4 @@ Applies a non-empty set of Core Module Version lifecycle transitions atomically.
 ### Read-Only
 
 - `id` (String) Atomic lifecycle correlation UUID.
-- `versions_json` (String) Every resulting immutable lifecycle record returned by Core.
+- `versions_json` (String) Every resulting immutable lifecycle record returned by the Orchestrator.

@@ -3,12 +3,12 @@
 page_title: "platform-orchestrator_module_versions Data Source - platform-orchestrator"
 subcategory: ""
 description: |-
-  Lists complete immutable Core Module Version history using server-side pagination. This is normal OSS Core functionality.
+  Lists complete immutable Orchestrator Module Version history using server-side pagination.
 ---
 
 # platform-orchestrator_module_versions (Data Source)
 
-Lists complete immutable Core Module Version history using server-side pagination. This is normal OSS Core functionality.
+Lists complete immutable Orchestrator Module Version history using server-side pagination.
 
 
 

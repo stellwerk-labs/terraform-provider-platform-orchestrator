@@ -34,7 +34,7 @@ func (d *ModuleVersionsDataSource) Metadata(_ context.Context, req datasource.Me
 
 func (d *ModuleVersionsDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "Lists complete immutable Core Module Version history using server-side pagination. This is normal OSS Core functionality.",
+		MarkdownDescription: "Lists complete immutable Orchestrator Module Version history using server-side pagination.",
 		Attributes: map[string]schema.Attribute{
 			"module_id":          schema.StringAttribute{Required: true},
 			"include_deprecated": schema.BoolAttribute{Optional: true},

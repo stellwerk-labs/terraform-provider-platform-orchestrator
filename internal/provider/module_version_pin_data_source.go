@@ -46,7 +46,7 @@ func (d *ModuleVersionPinDataSource) Metadata(_ context.Context, req datasource.
 
 func (d *ModuleVersionPinDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "Reads one exact Core Environment Module Version Pin and its complete append-only history. This OSS Core data source is independent from add-ons.",
+		MarkdownDescription: "Reads one exact Orchestrator Environment Module Version Pin and its complete append-only history.",
 		Attributes: map[string]schema.Attribute{
 			"id":                     schema.StringAttribute{Required: true, MarkdownDescription: "Module Version Pin UUID."},
 			"project_uuid":           schema.StringAttribute{Computed: true},

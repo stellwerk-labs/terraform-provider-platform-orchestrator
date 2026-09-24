@@ -3,12 +3,12 @@
 page_title: "platform-orchestrator_module_version Data Source - platform-orchestrator"
 subcategory: ""
 description: |-
-  Reads one immutable Core Module Version together with its append-only lifecycle, current adoption and optional structural comparison. This is normal OSS Core functionality and does not require an add-on.
+  Reads one immutable Orchestrator Module Version together with its append-only lifecycle, current adoption and optional structural comparison.
 ---
 
 # platform-orchestrator_module_version (Data Source)
 
-Reads one immutable Core Module Version together with its append-only lifecycle, current adoption and optional structural comparison. This is normal OSS Core functionality and does not require an add-on.
+Reads one immutable Orchestrator Module Version together with its append-only lifecycle, current adoption and optional structural comparison.
 
 
 

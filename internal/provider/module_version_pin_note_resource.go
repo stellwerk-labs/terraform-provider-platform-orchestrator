@@ -44,7 +44,7 @@ func (r *ModuleVersionPinNoteResource) Metadata(_ context.Context, req resource.
 func (r *ModuleVersionPinNoteResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	replace := []planmodifier.String{stringplanmodifier.RequiresReplace()}
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "Appends one immutable note to a Core Module Version Pin. Notes add operational context but never change the Pin state, Version, protection, activation boundary or an add-on approval. Terraform destroy only forgets the note because Pin history is append-only.",
+		MarkdownDescription: "Appends one immutable note to an Orchestrator Module Version Pin. Notes add operational context but never change the Pin state, Version, protection, activation boundary or an add-on approval. Terraform destroy only forgets the note because Pin history is append-only.",
 		Attributes: map[string]schema.Attribute{
 			"id":                  schema.StringAttribute{Computed: true, MarkdownDescription: "Immutable Pin event UUID."},
 			"pin_id":              schema.StringAttribute{Required: true, PlanModifiers: replace},

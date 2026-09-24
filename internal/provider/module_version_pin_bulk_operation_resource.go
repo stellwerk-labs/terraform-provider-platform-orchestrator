@@ -48,16 +48,16 @@ func (r *ModuleVersionPinBulkOperationResource) Schema(_ context.Context, _ reso
 	stringReplace := []planmodifier.String{stringplanmodifier.RequiresReplace()}
 	setReplace := []planmodifier.Set{setplanmodifier.RequiresReplace()}
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "Executes one atomic Core bulk Pin, Unpin or permanent-discard operation over a frozen explicit Environment UUID set. The resource is an immutable Terraform receipt; destroy forgets it and never reverses the audited operation implicitly.",
+		MarkdownDescription: "Executes one atomic Orchestrator bulk Pin, Unpin or permanent-discard operation over a frozen explicit Environment UUID set. The resource is an immutable Terraform receipt; destroy forgets it and never reverses the audited operation implicitly.",
 		Attributes: map[string]schema.Attribute{
-			"id":                              schema.StringAttribute{Computed: true, MarkdownDescription: "Core bulk operation UUID."},
+			"id":                              schema.StringAttribute{Computed: true, MarkdownDescription: "Orchestrator bulk operation UUID."},
 			"module_uuid":                     schema.StringAttribute{Required: true, PlanModifiers: stringReplace},
 			"environment_uuids":               schema.SetAttribute{Required: true, ElementType: types.StringType, PlanModifiers: setReplace, MarkdownDescription: "Non-empty frozen explicit Environment UUIDs. Future Environments never inherit this action."},
 			"action":                          schema.StringAttribute{Required: true, PlanModifiers: stringReplace, Validators: []validator.String{stringvalidator.OneOf("pin", "unpin", "discard")}},
 			"reason":                          schema.StringAttribute{Required: true, PlanModifiers: stringReplace},
 			"confirm_defective_version_uuids": schema.SetAttribute{Optional: true, ElementType: types.StringType, PlanModifiers: setReplace, MarkdownDescription: "Exact Defective Version UUID acknowledgements for otherwise-authorised Pin creation."},
 			"preview_fingerprint":             schema.StringAttribute{Computed: true, MarkdownDescription: "Deterministic server preview accepted by the atomic command."},
-			"pins_json":                       schema.StringAttribute{Computed: true, MarkdownDescription: "Materialised per-Environment Pin records returned atomically by Core."},
+			"pins_json":                       schema.StringAttribute{Computed: true, MarkdownDescription: "Materialised per-Environment Pin records returned atomically by the Orchestrator."},
 		},
 	}
 }

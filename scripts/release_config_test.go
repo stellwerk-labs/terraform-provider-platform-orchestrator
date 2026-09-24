@@ -87,7 +87,7 @@ func TestReleaseWorkflowSafety(t *testing.T) {
 		if strings.HasPrefix(step.Uses, "goreleaser/goreleaser-action@") {
 			hasRelease = true
 			require.Equal(t, "v2.18.1", step.With["version"])
-			require.Equal(t, "release --clean", step.With["args"])
+			require.Equal(t, "release --clean --release-notes=docs/releases/${{ github.ref_name }}.md", step.With["args"])
 			require.Equal(t, "${{ steps.import_gpg.outputs.fingerprint }}", step.Env["GPG_FINGERPRINT"])
 			require.Equal(t, "${{ secrets.GPG_PASSPHRASE }}", step.Env["GPG_PASSPHRASE"])
 		}

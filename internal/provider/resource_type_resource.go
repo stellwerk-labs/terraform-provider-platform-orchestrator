@@ -58,7 +58,7 @@ func (r *ResourceTypeResource) Metadata(ctx context.Context, req resource.Metada
 func (r *ResourceTypeResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		// This description is used by the documentation generator and the language server.
-		MarkdownDescription: "Manages an immutable Core Resource Type contract. Changing its contract requires a new identity. Archive blocks new Module bindings while preserving existing Modules. Referenced identities cannot be deleted; explicitly set deletion_policy=retain to relinquish Terraform ownership without deletion.",
+		MarkdownDescription: "Manages an immutable Orchestrator Resource Type contract. Changing its contract requires a new identity. Archive blocks new Module bindings while preserving existing Modules. Referenced identities cannot be deleted; explicitly set deletion_policy=retain to relinquish Terraform ownership without deletion.",
 
 		Attributes: map[string]schema.Attribute{
 			"deletion_policy":   retainedDependencyPolicyAttribute(),
@@ -91,7 +91,7 @@ func (r *ResourceTypeResource) Schema(ctx context.Context, req resource.SchemaRe
 				CustomType:          jsontypes.NormalizedType{},
 			},
 			"module_contract": schema.StringAttribute{
-				MarkdownDescription: "Optional immutable, bounded OpenAPI 3.0 Schema Object over module_inputs, module_params, provider_mapping, dependencies, coprovisioned and output_schema. Validated offline by Core; no external artifact inspection. Omission preserves imported contracts and imposes no additional constraints on new Resource Types.",
+				MarkdownDescription: "Optional immutable, bounded OpenAPI 3.0 Schema Object over module_inputs, module_params, provider_mapping, dependencies, coprovisioned and output_schema. Validated offline by the Orchestrator; no external artifact inspection. Omission preserves imported contracts and imposes no additional constraints on new Resource Types.",
 				Optional:            true, Computed: true, CustomType: jsontypes.NormalizedType{},
 			},
 			"is_developer_accessible": schema.BoolAttribute{

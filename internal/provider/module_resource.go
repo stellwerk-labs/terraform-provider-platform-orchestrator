@@ -108,9 +108,9 @@ func (r *ModuleResource) Metadata(ctx context.Context, req resource.MetadataRequ
 
 func (r *ModuleResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		DeprecationMessage: "Legacy mutable Module authoring is unsupported by Core Module Version Management. Keep this resource readable while transferring the existing slug to platform-orchestrator_module_catalogue_entry, then publish complete immutable platform-orchestrator_module_version resources. See the module-management-upgrade guide; do not destroy the old object or invent a SemVer for v0.",
+		DeprecationMessage: "Legacy mutable Module authoring is unsupported by the Orchestrator Module Version Management. Keep this resource readable while transferring the existing slug to platform-orchestrator_module_catalogue_entry, then publish complete immutable platform-orchestrator_module_version resources. See the module-management-upgrade guide; do not destroy the old object or invent a SemVer for v0.",
 		// This description is used by the documentation generator and the language server.
-		MarkdownDescription: "Deprecated legacy mutable Module resource. Existing state remains readable for ownership migration, but Core Module Version Management rejects its create/update writes. Use module_catalogue_entry plus immutable module_version resources and explicit promotion. See the module-management-upgrade guide before changing an existing configuration.",
+		MarkdownDescription: "Deprecated legacy mutable Module resource. Existing state remains readable for ownership migration, but Orchestrator Module Version Management rejects its create/update writes. Use module_catalogue_entry plus immutable module_version resources and explicit promotion. See the module-management-upgrade guide before changing an existing configuration.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Required:            true,

@@ -3,12 +3,12 @@
 page_title: "platform-orchestrator_module_version_pin_bulk_operation Resource - platform-orchestrator"
 subcategory: ""
 description: |-
-  Executes one atomic Core bulk Pin, Unpin or permanent-discard operation over a frozen explicit Environment UUID set. The resource is an immutable Terraform receipt; destroy forgets it and never reverses the audited operation implicitly.
+  Executes one atomic Orchestrator bulk Pin, Unpin or permanent-discard operation over a frozen explicit Environment UUID set. The resource is an immutable Terraform receipt; destroy forgets it and never reverses the audited operation implicitly.
 ---
 
 # platform-orchestrator_module_version_pin_bulk_operation (Resource)
 
-Executes one atomic Core bulk Pin, Unpin or permanent-discard operation over a frozen explicit Environment UUID set. The resource is an immutable Terraform receipt; destroy forgets it and never reverses the audited operation implicitly.
+Executes one atomic Orchestrator bulk Pin, Unpin or permanent-discard operation over a frozen explicit Environment UUID set. The resource is an immutable Terraform receipt; destroy forgets it and never reverses the audited operation implicitly.
 
 
 
@@ -28,6 +28,6 @@ Executes one atomic Core bulk Pin, Unpin or permanent-discard operation over a f
 
 ### Read-Only
 
-- `id` (String) Core bulk operation UUID.
-- `pins_json` (String) Materialised per-Environment Pin records returned atomically by Core.
+- `id` (String) Orchestrator bulk operation UUID.
+- `pins_json` (String) Materialised per-Environment Pin records returned atomically by the Orchestrator.
 - `preview_fingerprint` (String) Deterministic server preview accepted by the atomic command.

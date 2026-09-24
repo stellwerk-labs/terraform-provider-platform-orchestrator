@@ -40,11 +40,11 @@ func (r *ModuleVersionLifecycleTransactionResource) Metadata(_ context.Context, 
 
 func (r *ModuleVersionLifecycleTransactionResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "Applies a non-empty set of Core Module Version lifecycle transitions atomically. No partial transition survives validation, authorisation, concurrency or persistence failure. The resource is an immutable operation receipt.",
+		MarkdownDescription: "Applies a non-empty set of Orchestrator Module Version lifecycle transitions atomically. No partial transition survives validation, authorisation, concurrency or persistence failure. The resource is an immutable operation receipt.",
 		Attributes: map[string]schema.Attribute{
 			"id":            schema.StringAttribute{Computed: true, MarkdownDescription: "Atomic lifecycle correlation UUID."},
 			"transaction":   schema.StringAttribute{Required: true, CustomType: jsontypes.NormalizedType{}, PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}, MarkdownDescription: "JSON ModuleVersionLifecycleTransactionBody with exact Version IDs, expected resource versions, actions and reasons."},
-			"versions_json": schema.StringAttribute{Computed: true, MarkdownDescription: "Every resulting immutable lifecycle record returned by Core."},
+			"versions_json": schema.StringAttribute{Computed: true, MarkdownDescription: "Every resulting immutable lifecycle record returned by the Orchestrator."},
 		},
 	}
 }

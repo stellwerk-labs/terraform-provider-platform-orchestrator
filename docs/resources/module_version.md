@@ -3,12 +3,12 @@
 page_title: "platform-orchestrator_module_version Resource - platform-orchestrator"
 subcategory: ""
 description: |-
-  Publishes and manages one immutable Core Module Version. The external artifact definition and SemVer identity are immutable; removing this Terraform resource only forgets it from state because Stellwerk permanently retains published Versions.
+  Publishes and manages one immutable Orchestrator Module Version. The external artifact definition and SemVer identity are immutable; removing this Terraform resource only forgets it from state because Stellwerk permanently retains published Versions.
 ---
 
 # platform-orchestrator_module_version (Resource)
 
-Publishes and manages one immutable Core Module Version. The external artifact definition and SemVer identity are immutable; removing this Terraform resource only forgets it from state because Stellwerk permanently retains published Versions.
+Publishes and manages one immutable Orchestrator Module Version. The external artifact definition and SemVer identity are immutable; removing this Terraform resource only forgets it from state because Stellwerk permanently retains published Versions.
 
 
 
@@ -23,7 +23,7 @@ Publishes and manages one immutable Core Module Version. The external artifact d
 
 ### Optional
 
-- `lifecycle_status` (String) Desired Core lifecycle status. Valid values are proposed, default, deprecated and defective; transitions remain server validated.
+- `lifecycle_status` (String) Desired Orchestrator lifecycle status. Valid values are proposed, default, deprecated and defective; transitions remain server validated.
 - `transition_reason` (String) Human-readable reason used when lifecycle_status requests a transition after publication.
 
 ### Read-Only

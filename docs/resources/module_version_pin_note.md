@@ -3,12 +3,12 @@
 page_title: "platform-orchestrator_module_version_pin_note Resource - platform-orchestrator"
 subcategory: ""
 description: |-
-  Appends one immutable note to a Core Module Version Pin. Notes add operational context but never change the Pin state, Version, protection, activation boundary or an add-on approval. Terraform destroy only forgets the note because Pin history is append-only.
+  Appends one immutable note to an Orchestrator Module Version Pin. Notes add operational context but never change the Pin state, Version, protection, activation boundary or an add-on approval. Terraform destroy only forgets the note because Pin history is append-only.
 ---
 
 # platform-orchestrator_module_version_pin_note (Resource)
 
-Appends one immutable note to a Core Module Version Pin. Notes add operational context but never change the Pin state, Version, protection, activation boundary or an add-on approval. Terraform destroy only forgets the note because Pin history is append-only.
+Appends one immutable note to an Orchestrator Module Version Pin. Notes add operational context but never change the Pin state, Version, protection, activation boundary or an add-on approval. Terraform destroy only forgets the note because Pin history is append-only.
 
 
 
