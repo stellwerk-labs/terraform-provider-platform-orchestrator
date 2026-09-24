@@ -42,11 +42,14 @@ upgrade documentation and the immutable Module ownership-transfer procedure.
 Include reviewed release notes at `docs/releases/<tag>.md` in the tagged commit
 for both candidates and stable releases. GoReleaser reads that exact file; a
 missing file stops publication instead of producing empty or generated notes.
+Leave `changelog.disable` unset. GoReleaser otherwise ignores even an explicit
+`--release-notes` file. The post-publication check compares the release body
+with the reviewed file, allowing only trailing newline normalization.
 An RC is a separate version; do not rename it or reuse its tag for the eventual
 stable release.
 
 The workflow validates the published tag, draft/prerelease flags, asset count,
-manifest, checksums and signature artifact. After an RC, also verify that GitHub's
+manifest, checksums, signature artifact and reviewed notes. After an RC, also verify that GitHub's
 `releases/latest` still points to the previous stable release. After a stable
 release, verify that it points to the new stable tag. Validate the downloaded
 checksum signature with the registered signing key and test installation with

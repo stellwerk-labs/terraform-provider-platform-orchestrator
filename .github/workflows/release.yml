@@ -58,5 +58,5 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          gh release view "$RELEASE_TAG" --json tagName,isDraft,isPrerelease,assets \
-            | bash scripts/verify-release-metadata.sh "$RELEASE_TAG"
+          gh release view "$RELEASE_TAG" --json tagName,isDraft,isPrerelease,assets,body \
+            | bash scripts/verify-release-metadata.sh "$RELEASE_TAG" "docs/releases/$RELEASE_TAG.md"
