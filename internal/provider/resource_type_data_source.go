@@ -35,6 +35,7 @@ type ResourceTypeDataSourceModel struct {
 	Id                    types.String         `tfsdk:"id"`
 	Description           types.String         `tfsdk:"description"`
 	OutputSchema          jsontypes.Normalized `tfsdk:"output_schema"`
+	ModuleContract        jsontypes.Normalized `tfsdk:"module_contract"`
 	IsDeveloperAccessible types.Bool           `tfsdk:"is_developer_accessible"`
 }
 
@@ -70,6 +71,10 @@ func (d *ResourceTypeDataSource) Schema(ctx context.Context, req datasource.Sche
 			"is_developer_accessible": schema.BoolAttribute{
 				MarkdownDescription: "Indicates if this resource type is for developers to use in the manifest. Resource types with this flag set to false, will not be available as types of resources in a manifest.",
 				Computed:            true,
+			},
+			"module_contract": schema.StringAttribute{
+				MarkdownDescription: "Immutable declarative Module interface contract, when present. Absence is retained as null, not an invented empty contract.",
+				Computed:            true, CustomType: jsontypes.NormalizedType{},
 			},
 		},
 	}
@@ -139,6 +144,11 @@ func (d *ResourceTypeDataSource) Read(ctx context.Context, req datasource.ReadRe
 	data.Id = types.StringValue(resourceType.Id)
 	data.Description = description
 	data.OutputSchema = jsontypes.NewNormalizedValue(string(outputSchemaBytes))
+	data.ModuleContract, err = resourceTypeModuleContractValue(resourceType.ModuleContract)
+	if err != nil {
+		resp.Diagnostics.AddError(PO_PROVIDER_ERR, err.Error())
+		return
+	}
 	data.IsDeveloperAccessible = types.BoolValue(resourceType.IsDeveloperAccessible)
 
 	// Save data into Terraform state

@@ -3,12 +3,12 @@
 page_title: "platform-orchestrator_module Resource - platform-orchestrator"
 subcategory: ""
 description: |-
-  Module resource
+  Deprecated legacy mutable Module resource. Existing state remains readable for ownership migration, but Orchestrator Module Version Management rejects its create/update writes. Use module_catalogue_entry plus immutable module_version resources and explicit promotion. See the module-management-upgrade guide before changing an existing configuration.
 ---
 
 # platform-orchestrator_module (Resource)
 
-Module resource
+Deprecated legacy mutable Module resource. Existing state remains readable for ownership migration, but Orchestrator Module Version Management rejects its create/update writes. Use module_catalogue_entry plus immutable module_version resources and explicit promotion. See the module-management-upgrade guide before changing an existing configuration.
 
 ## Example Usage
 

@@ -38,6 +38,7 @@ resource "platform-orchestrator_provider" "aws" {
 ### Optional
 
 - `configuration` (String) JSON encoded configuration of the provider.
+- `deletion_policy` (String) Destroy behavior: delete (default) requests API deletion and reports references that block it; retain removes only Terraform ownership without modifying the API resource. Select retain explicitly for dependencies of permanently retained Module history. Import retained identities before managing them again.
 - `description` (String) The description of the Module Provider.
 
 ## Import

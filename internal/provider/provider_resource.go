@@ -44,6 +44,7 @@ type ProviderResourceModel struct {
 	Source            types.String         `tfsdk:"source"`
 	VersionConstraint types.String         `tfsdk:"version_constraint"`
 	Configuration     jsontypes.Normalized `tfsdk:"configuration"`
+	DeletionPolicy    types.String         `tfsdk:"deletion_policy"`
 }
 
 func (r *ProviderResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -56,6 +57,7 @@ func (r *ProviderResource) Schema(ctx context.Context, req resource.SchemaReques
 		MarkdownDescription: "Provider resource",
 
 		Attributes: map[string]schema.Attribute{
+			"deletion_policy": retainedDependencyPolicyAttribute(),
 			"id": schema.StringAttribute{
 				MarkdownDescription: "The unique identifier for the Provider.",
 				Required:            true,
@@ -178,7 +180,9 @@ func (r *ProviderResource) Create(ctx context.Context, req resource.CreateReques
 	}
 
 	// Save data into Terraform state
-	resp.Diagnostics.Append(resp.State.Set(ctx, ref.Ref(toProviderResourceModel(*httpResp.JSON201)))...)
+	result := toProviderResourceModel(*httpResp.JSON201)
+	result.DeletionPolicy = data.DeletionPolicy
+	resp.Diagnostics.Append(resp.State.Set(ctx, &result)...)
 }
 
 func (r *ProviderResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
@@ -208,7 +212,12 @@ func (r *ProviderResource) Read(ctx context.Context, req resource.ReadRequest, r
 		return
 	}
 
-	resp.Diagnostics.Append(resp.State.Set(ctx, ref.Ref(toProviderResourceModel(*httpResp.JSON200)))...)
+	result := toProviderResourceModel(*httpResp.JSON200)
+	result.DeletionPolicy = data.DeletionPolicy
+	if result.DeletionPolicy.IsNull() {
+		result.DeletionPolicy = types.StringValue("delete")
+	}
+	resp.Diagnostics.Append(resp.State.Set(ctx, &result)...)
 }
 
 func (r *ProviderResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
@@ -218,6 +227,10 @@ func (r *ProviderResource) Update(ctx context.Context, req resource.UpdateReques
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 
 	if resp.Diagnostics.HasError() {
+		return
+	}
+	if data.Description.Equal(state.Description) && data.Source.Equal(state.Source) && data.VersionConstraint.Equal(state.VersionConstraint) && data.Configuration.Equal(state.Configuration) {
+		resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 		return
 	}
 
@@ -248,7 +261,9 @@ func (r *ProviderResource) Update(ctx context.Context, req resource.UpdateReques
 		return
 	}
 
-	resp.Diagnostics.Append(resp.State.Set(ctx, ref.Ref(toProviderResourceModel(*httpResp.JSON200)))...)
+	result := toProviderResourceModel(*httpResp.JSON200)
+	result.DeletionPolicy = data.DeletionPolicy
+	resp.Diagnostics.Append(resp.State.Set(ctx, &result)...)
 }
 
 func (r *ProviderResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
@@ -258,6 +273,11 @@ func (r *ProviderResource) Delete(ctx context.Context, req resource.DeleteReques
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
 
 	if resp.Diagnostics.HasError() {
+		return
+	}
+	if data.DeletionPolicy.ValueString() == "retain" {
+		resp.Diagnostics.AddWarning("Module Provider retained", "deletion_policy=retain removed only Terraform ownership. The Provider identity, configuration and any immutable Module references remain in Stellwerk; no deletion or archival was attempted.")
+		resp.State.RemoveResource(ctx)
 		return
 	}
 

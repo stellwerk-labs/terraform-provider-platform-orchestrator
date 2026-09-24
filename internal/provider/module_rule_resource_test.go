@@ -189,23 +189,44 @@ func testAccModuleRuleResource(moduleId, resourceTypeId, envTypeId, classBlock, 
 resource "platform-orchestrator_resource_type" "custom_type" {
   id           =  "` + resourceTypeId + `"
   output_schema = "{}"
+  deletion_policy = "retain"
 }
 
 resource "platform-orchestrator_environment_type" "test" {
   id             = "` + envTypeId + `"
 }
  
-resource "platform-orchestrator_module" "test" {
+resource "platform-orchestrator_module_catalogue_entry" "test" {
   id             = "` + moduleId + `"
   description    = "Test module description"
   resource_type  = platform-orchestrator_resource_type.custom_type.id
-  module_source  = "s3://my-bucket/module.zip"
 }
 
+` + testAccModuleRuleDefaultVersion + `
+
 resource "platform-orchestrator_module_rule" "test" {
-  module_id       = platform-orchestrator_module.test.id
+  module_id       = platform-orchestrator_module_catalogue_entry.test.id
+  depends_on      = [platform-orchestrator_module_version.test]
   ` + classBlock + `
   ` + envTypeBlock + `
 }
 `
 }
+
+const testAccModuleRuleDefaultVersion = `
+resource "platform-orchestrator_module_version" "test" {
+  module_id = platform-orchestrator_module_catalogue_entry.test.id
+  semantic_version = "1.0.0"
+  lifecycle_status = "default"
+  transition_reason = "Module Rule acceptance release"
+  definition = jsonencode({
+    module_source = "inline"
+    module_source_code = "output \"value\" { value = \"rule-fixture\" }"
+    module_inputs = {}
+    module_params = {}
+    provider_mapping = {}
+    dependencies = {}
+    coprovisioned = []
+  })
+}
+`
