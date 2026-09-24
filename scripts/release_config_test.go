@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"text/template"
@@ -23,6 +24,9 @@ func TestReleaseChannelConfiguration(t *testing.T) {
 		Checksum struct {
 			Algorithm string `yaml:"algorithm"`
 		} `yaml:"checksum"`
+		Changelog struct {
+			Disable string `yaml:"disable"`
+		} `yaml:"changelog"`
 		Signs []struct {
 			Artifacts string   `yaml:"artifacts"`
 			Args      []string `yaml:"args"`
@@ -33,6 +37,7 @@ func TestReleaseChannelConfiguration(t *testing.T) {
 	require.NoError(t, yaml.Unmarshal(data, &config))
 	require.Equal(t, "auto", config.Release.Prerelease)
 	require.Equal(t, "sha256", config.Checksum.Algorithm)
+	require.Empty(t, config.Changelog.Disable, "disabling changelog also suppresses the reviewed --release-notes file")
 	require.Len(t, config.Signs, 1)
 	require.Equal(t, "checksum", config.Signs[0].Artifacts)
 	require.Equal(t, []string{
@@ -94,8 +99,8 @@ func TestReleaseWorkflowSafety(t *testing.T) {
 		if step.Name == "Verify release artifacts" {
 			hasVerification = true
 			require.Contains(t, step.Run, "set -euo pipefail")
-			require.Contains(t, step.Run, "--json tagName,isDraft,isPrerelease,assets")
-			require.Contains(t, step.Run, `| bash scripts/verify-release-metadata.sh "$RELEASE_TAG"`)
+			require.Contains(t, step.Run, "--json tagName,isDraft,isPrerelease,assets,body")
+			require.Contains(t, step.Run, `| bash scripts/verify-release-metadata.sh "$RELEASE_TAG" "docs/releases/$RELEASE_TAG.md"`)
 		}
 	}
 	require.True(t, hasRelease)
@@ -121,10 +126,15 @@ func TestReleaseWorkflowSafety(t *testing.T) {
 }
 
 func TestReleaseMetadataValidation(t *testing.T) {
+	const reviewedNotes = "# Provider release\n\nReviewed breaking changes.\n"
+	notesFile := filepath.Join(t.TempDir(), "notes.md")
+	require.NoError(t, os.WriteFile(notesFile, []byte(reviewedNotes), 0o600))
 	for _, tc := range []struct {
 		name, tag, publishedTag, missing string
 		prerelease, draft, wantError     bool
 		assetCount                       int
+		badNotes                         bool
+		body                             string
 	}{
 		{name: "stable", tag: "v2.0.0"},
 		{name: "candidate", tag: "v2.0.0-rc.1", prerelease: true},
@@ -138,6 +148,8 @@ func TestReleaseMetadataValidation(t *testing.T) {
 		{name: "missing signature", tag: "v2.0.0", missing: "_SHA256SUMS.sig", wantError: true},
 		{name: "missing manifest", tag: "v2.0.0", missing: "_manifest.json", wantError: true},
 		{name: "too few artifacts", tag: "v2.0.0", assetCount: 15, wantError: true},
+		{name: "empty notes", tag: "v2.0.0", badNotes: true, wantError: true},
+		{name: "wrong notes", tag: "v2.0.0", badNotes: true, body: "Automatically generated summary", wantError: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.publishedTag == "" {
@@ -145,6 +157,9 @@ func TestReleaseMetadataValidation(t *testing.T) {
 			}
 			if tc.assetCount == 0 {
 				tc.assetCount = 16
+			}
+			if !tc.badNotes {
+				tc.body = reviewedNotes
 			}
 			prefix := "terraform-provider-platform-orchestrator_" + strings.TrimPrefix(tc.publishedTag, "v")
 			assets := make([]map[string]string, 0, tc.assetCount)
@@ -158,10 +173,10 @@ func TestReleaseMetadataValidation(t *testing.T) {
 			}
 			input, err := json.Marshal(map[string]any{
 				"tagName": tc.publishedTag, "isDraft": tc.draft,
-				"isPrerelease": tc.prerelease, "assets": assets,
+				"isPrerelease": tc.prerelease, "assets": assets, "body": tc.body,
 			})
 			require.NoError(t, err)
-			command := exec.Command("bash", "verify-release-metadata.sh", tc.tag)
+			command := exec.Command("bash", "verify-release-metadata.sh", tc.tag, notesFile)
 			command.Stdin = bytes.NewReader(input)
 			output, err := command.CombinedOutput()
 			if tc.wantError {
