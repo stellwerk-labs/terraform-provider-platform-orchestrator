@@ -22,6 +22,18 @@ resource "platform-orchestrator_deployment" "main" {
     shared    = {}
   })
   wait_for = true
+
+  # While another deployment of the environment runs, wait in its deployment
+  # queue (the default) instead of failing with environment_busy, and do not
+  # start if the deployment it waited for failed.
+  when_busy       = "queue"
+  halt_on_failure = true
+
+  # The create and update timeouts cover the wait in the queue.
+  timeouts {
+    create = "60m"
+    update = "60m"
+  }
 }
 ```
 
@@ -36,9 +48,11 @@ resource "platform-orchestrator_deployment" "main" {
 
 ### Optional
 
-- `mode` (String) The mode of the deployment. 'deploy' (the default) or 'plan_only'.
+- `halt_on_failure` (Boolean) Whether a deployment that waits in the environment's deployment queue must not start when the deployment it waited for failed. The queued request is then rejected with `previous_deployment_failed`, the apply fails and names the failed deployment, and the queue continues with the next request. Unset means `false`. A deployment that starts at once never halts, and `plan_only` deployments are never queued. Not valid with `when_busy = "reject"`. Changing only `halt_on_failure` updates state without redeploying.
+- `mode` (String) The mode of the deployment. 'deploy' (the default) or 'plan_only'. A `plan_only` deployment is never queued and does not run beside another deployment of the environment; while deployments wait in the environment's deployment queue, it plans the environment as it is now and the apply warns that the result may change.
 - `timeouts` (Block, Optional) (see [below for nested schema](#nestedblock--timeouts))
 - `wait_for` (Boolean) Whether to wait for the deployment to complete. Defaults to true. If false, the output will be empty.
+- `when_busy` (String) What the deployment does when its environment is busy with another deployment or already has queued deployments. `queue` (the default) waits in the environment's deployment queue and starts in order once the environment is free; the create or update timeout covers that wait, and a request still queued when it elapses is cancelled. `reject` fails with `environment_busy` instead. Leaving it unset means `queue`, which is also the Data Plane's own default; the provider sends the value explicitly either way. A provider authorized by an organization token cannot wait in the queue and gets `environment_busy` from a busy environment. `plan_only` deployments are never queued. Changing only `when_busy` updates state without redeploying.
 
 ### Read-Only
 
@@ -55,4 +69,6 @@ resource "platform-orchestrator_deployment" "main" {
 
 Optional:
 
+- `create` (String) A string that can be [parsed as a duration](https://pkg.go.dev/time#ParseDuration), for example `60m`. How long to create the deployment, including its wait in the environment's deployment queue and, with `wait_for`, for its completion. Defaults to 20m.
 - `delete` (String) A string that can be [parsed as a duration](https://pkg.go.dev/time#ParseDuration) consisting of numbers and unit suffixes, such as "30s" or "2h45m". Valid time units are "s" (seconds), "m" (minutes), "h" (hours). Setting a timeout for a Delete operation is only applicable if changes are saved into state before the destroy operation occurs.
+- `update` (String) A string that can be [parsed as a duration](https://pkg.go.dev/time#ParseDuration), for example `60m`. How long to redeploy, including the wait in the environment's deployment queue and, with `wait_for`, for completion. Defaults to 20m.

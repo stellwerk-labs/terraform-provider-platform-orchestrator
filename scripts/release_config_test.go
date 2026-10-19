@@ -28,6 +28,7 @@ func TestReleaseChannelConfiguration(t *testing.T) {
 			Disable string `yaml:"disable"`
 		} `yaml:"changelog"`
 		Signs []struct {
+			Cmd       string   `yaml:"cmd"`
 			Artifacts string   `yaml:"artifacts"`
 			Args      []string `yaml:"args"`
 		} `yaml:"signs"`
@@ -40,11 +41,10 @@ func TestReleaseChannelConfiguration(t *testing.T) {
 	require.Empty(t, config.Changelog.Disable, "disabling changelog also suppresses the reviewed --release-notes file")
 	require.Len(t, config.Signs, 1)
 	require.Equal(t, "checksum", config.Signs[0].Artifacts)
+	require.Equal(t, "./scripts/sign-qualified-artifact.py", config.Signs[0].Cmd)
 	require.Equal(t, []string{
-		"--batch", "--pinentry-mode", "loopback",
-		"--passphrase", "{{ .Env.GPG_PASSPHRASE }}",
-		"--local-user", "{{ .Env.GPG_FINGERPRINT }}",
-		"--output", "${signature}", "--detach-sign", "${artifact}",
+		"gpg", "{{ .FullCommit }}", "{{ .Tag }}", "{{ .Version }}",
+		"${artifact}", "${signature}", "{{ .Env.GPG_FINGERPRINT }}",
 	}, config.Signs[0].Args)
 
 	latest, err := template.New("make_latest").Option("missingkey=error").Parse(config.Release.MakeLatest)

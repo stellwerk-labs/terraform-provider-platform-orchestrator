@@ -12,6 +12,13 @@ on:
 permissions:
   contents: read
 
+env:
+  GOTOOLCHAIN: go1.26.2
+  GOWORK: 'off'
+  GOENV: 'off'
+  GOFLAGS: ''
+  GOEXPERIMENT: ''
+
 concurrency:
   group: tests-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -20,17 +27,31 @@ jobs:
   build:
     name: Build Terraform Provider
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: 'go.mod'
+          go-version: '1.26.2'
           cache: true
       - run: go mod download
       - run: go build -v .
       - name: Test release channel and metadata validation
         run: go test -v ./scripts
+      - name: Install checksum-verified content scanner
+        run: |
+          ./scripts/install-release-tools.sh "$RUNNER_TEMP/release-tools"
+          echo "$RUNNER_TEMP/release-tools" >> "$GITHUB_PATH"
+          source scripts/release-tools.sh
+          docker pull "$syft_image"
+      - name: Verify release notice collection and fail-closed boundaries
+        run: |
+          go test -count=1 -v ./scripts/licensecollector
+          ./scripts/collect-licenses.sh "$RUNNER_TEMP/provider-notices"
+      - name: Test release content and qualification boundaries
+        run: |
+          python3 scripts/release_content_test.py
+          python3 scripts/qualify_release_test.py
       - name: Validate release configuration without publishing
         uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
@@ -48,7 +69,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: 'go.mod'
+          go-version: '1.26.2'
           cache: true
       # We need the latest version of Terraform for our documentation generation to use
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
@@ -72,15 +93,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: 'go.mod'
+          go-version: '1.26.2'
           cache: true
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
           terraform_version: 1.4.*
           terraform_wrapper: false
       - run: go mod download
-      - name: Run contained automation acceptance test
-        run: TF_ACC=1 go test -v -run '^TestAccAutomationResourcesLocal$' -count=1 ./internal/provider/
+      - name: Run contained provider acceptance tests
+        run: TF_ACC=1 go test -v -run '^TestAcc(AutomationResourcesLocal|ModuleVersionContractPlanLocal|ProgressiveRolloutsLocal|ProgressiveRolloutsAvailabilityLocal|ProgressiveRolloutImportLocal|DeploymentQueueLocal|PluginEnablementLocal)$' -count=1 ./internal/provider/
       - env:
           PO_ORG_ID: ${{ vars.PO_ORG_ID }}
           PO_AUTH_TOKEN: ${{ secrets.PO_AUTH_TOKEN }}

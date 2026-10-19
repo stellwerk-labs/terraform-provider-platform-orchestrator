@@ -256,16 +256,27 @@ func moduleVersionLifecycleAction(current, desired string) (cp.TransitionModuleV
 func applyModuleVersionState(state *ModuleVersionResourceModel, version cp.CoreModuleVersion) {
 	state.ID = types.StringValue(version.Uuid.String())
 	state.ModuleID = types.StringValue(version.ModuleSlug)
-	state.SemanticVersion = types.StringValue(version.OpaqueVersionId)
+	state.SemanticVersion = types.StringValue(moduleVersionCoordinate(version))
 	state.LifecycleStatus = types.StringValue(string(version.LifecycleStatus))
 	state.ResourceVersion = types.Int64Value(version.ResourceVersion)
 	state.Verification = types.StringValue(string(version.VerificationStatus))
 }
 
+// moduleVersionCoordinate prefers the canonical SemVer. Migrated Versions can
+// keep an older opaque identifier, which stays untouched in the read metadata.
+func moduleVersionCoordinate(version cp.CoreModuleVersion) string {
+	if version.SemanticVersion != nil && *version.SemanticVersion != "" {
+		return *version.SemanticVersion
+	}
+	return version.OpaqueVersionId
+}
+
 func moduleVersionPublishBody(detail cp.CoreModuleVersionDetail) cp.ModuleVersionPublishBody {
 	return cp.ModuleVersionPublishBody{
 		ArtifactDigest: func() *string {
-			if detail.Version.ArtifactDigest == "" {
+			// Inline Versions expose a computed hash in read metadata. That is not an
+			// author artifact claim and Core rejects it in an inline publication.
+			if detail.ModuleSource == "inline" || detail.Version.ArtifactDigest == "" {
 				return nil
 			}
 			value := detail.Version.ArtifactDigest
@@ -275,7 +286,7 @@ func moduleVersionPublishBody(detail cp.CoreModuleVersionDetail) cp.ModuleVersio
 		ModuleInputs: detail.ModuleInputs, ModuleParams: detail.ModuleParams, ModuleSource: detail.ModuleSource,
 		ModuleSourceCode: detail.ModuleSourceCode, ProviderMapping: detail.ProviderMapping, ReleaseNotes: detail.Version.ReleaseNotes,
 		OutputSchema:    detail.OutputSchema,
-		SemanticVersion: detail.Version.OpaqueVersionId,
+		SemanticVersion: moduleVersionCoordinate(detail.Version),
 		SourceRevision: func() *string {
 			if detail.Version.SourceRevision == "" {
 				return nil

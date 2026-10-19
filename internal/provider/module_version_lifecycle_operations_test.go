@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	cp "github.com/stellwerk-labs/terraform-provider-platform-orchestrator/internal/clients/platform-orchestrator-cp"
@@ -37,6 +38,32 @@ func TestStableSuccessorBodyRequiresCompleteReasonedPublication(t *testing.T) {
 	withoutVersion.Definition = jsontypes.NewNormalizedValue(`{"module_source":"inline"}`)
 	_, err = stableSuccessorBody(withoutVersion)
 	require.ErrorContains(t, err, "semantic_version")
+
+	unknownField := valid
+	unknownField.Definition = jsontypes.NewNormalizedValue(`{"semantic_version":"2.0.0","output_schmea":{}}`)
+	_, err = stableSuccessorBody(unknownField)
+	require.ErrorContains(t, err, "unknown field")
+}
+
+func TestStableSuccessorPreservesAuthorOutputDeclaration(t *testing.T) {
+	t.Parallel()
+
+	for _, declaration := range []string{`{}`, `{"type":"object","properties":{"endpoint":{"type":"string"}}}`} {
+		t.Run(declaration, func(t *testing.T) {
+			t.Parallel()
+			body, err := stableSuccessorBody(StableModuleVersionSuccessorResourceModel{
+				Reason:     types.StringValue("Qualify stable successor"),
+				Definition: jsontypes.NewNormalizedValue(`{"semantic_version":"2.0.0","module_source":"inline","output_schema":` + declaration + `}`),
+			})
+			require.NoError(t, err)
+			encoded, err := json.Marshal(body.Version)
+			require.NoError(t, err)
+			var fields map[string]json.RawMessage
+			require.NoError(t, json.Unmarshal(encoded, &fields))
+			require.Contains(t, fields, "output_schema", "author declaration must survive the actual successor publication body")
+			require.JSONEq(t, declaration, string(fields["output_schema"]))
+		})
+	}
 }
 
 func TestLifecycleTransactionBodyRejectsEmptyAndPreservesExactItems(t *testing.T) {

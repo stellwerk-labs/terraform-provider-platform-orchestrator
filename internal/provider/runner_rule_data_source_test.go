@@ -11,6 +11,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/tfjsonpath"
 )
 
+// TestAccRunnerRuleDataSource reads the organization's catch-all rule. Core
+// keeps one rule per scope, so it needs an organization without one.
 func TestAccRunnerRuleDataSource(t *testing.T) {
 	var (
 		runnerId = fmt.Sprintf("test-runner-%d", time.Now().UnixNano())

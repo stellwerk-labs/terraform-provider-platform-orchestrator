@@ -106,7 +106,7 @@ func (d *ModuleVersionDataSource) Read(ctx context.Context, req datasource.ReadR
 		return
 	}
 	state.ID = types.StringValue(detail.JSON200.Version.Uuid.String())
-	state.SemanticVersion = types.StringValue(detail.JSON200.Version.OpaqueVersionId)
+	state.SemanticVersion = types.StringValue(moduleVersionCoordinate(detail.JSON200.Version))
 	state.LifecycleStatus = types.StringValue(string(detail.JSON200.Version.LifecycleStatus))
 	state.Verification = types.StringValue(string(detail.JSON200.Version.VerificationStatus))
 	state.ResourceVersion = types.Int64Value(detail.JSON200.Version.ResourceVersion)

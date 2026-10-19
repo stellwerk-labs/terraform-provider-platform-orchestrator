@@ -1,0 +1,10 @@
+# Models only: every Progressive Rollouts operation is invoked through the Core
+# plugin gateway. The contract has no paths, so no schema would survive pruning.
+package: progressiverollouts
+generate:
+  models: true
+compatibility:
+  always-prefix-enum-values: true
+output-options:
+  skip-prune: true
+output: models.gen.go

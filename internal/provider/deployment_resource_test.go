@@ -130,7 +130,7 @@ resource "platform-orchestrator_deployment" "deployment" {
     }
   })
 }
-`, ExpectError: regexp.MustCompile(`Unable to create deployment, unexpected status code: 409.*`),
+`, ExpectError: regexp.MustCompile(`The deployment was refused \(HTTP-409\): environment not found\.`),
 			},
 		},
 	})

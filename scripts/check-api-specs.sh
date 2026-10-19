@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-readonly cp_revision=7e60c777be30e5d7dc0f9706cd5e4b16d5839d7c
-readonly dp_revision=0ae0aa5d9763e454e9a92e58b63b06afa0cb4170
 readonly iam_revision=b32bbebbbbfc1781e1cdc7308e9af35d91ae0118
 temp_dir="$(mktemp -d)"
 readonly temp_dir
@@ -34,6 +32,34 @@ check_spec() {
     return 1
   fi
 }
+
+# source_value FILE LABEL prints the value of the single "- LABEL: `value`" line.
+source_value() {
+  local value
+  value="$(sed -n "s/^- $2: \`\([^\`]*\)\`\$/\1/p" "$1")"
+  if [[ -z "$value" || "$value" == *$'\n'* ]]; then
+    echo "$1 must record exactly one $2" >&2
+    return 1
+  fi
+  printf '%s\n' "$value"
+}
+
+check_spec_sha() {
+  local vendored_spec="$1"
+  local expected_sha="$2"
+  local actual_sha
+  actual_sha="$(shasum -a 256 "$vendored_spec" | awk '{print $1}')"
+  if [[ "$actual_sha" != "$expected_sha" ]]; then
+    echo "$vendored_spec SHA-256 $actual_sha does not match recorded $expected_sha" >&2
+    return 1
+  fi
+}
+
+# The Core and Data Plane pins and digests live in their SOURCE.md files.
+cp_revision="$(source_value internal/clients/platform-orchestrator-cp/SOURCE.md Commit)"
+dp_revision="$(source_value internal/clients/platform-orchestrator-dp/SOURCE.md Commit)"
+check_spec_sha internal/clients/platform-orchestrator-cp/spec.yaml "$(source_value internal/clients/platform-orchestrator-cp/SOURCE.md 'File SHA-256')"
+check_spec_sha internal/clients/platform-orchestrator-dp/spec.yaml "$(source_value internal/clients/platform-orchestrator-dp/SOURCE.md 'File SHA-256')"
 
 check_spec stellwerk-labs/platform-orchestrator-cp "$cp_revision" internal/clients/platform-orchestrator-cp/spec.yaml "${CP_SPEC_PATH:-}"
 check_spec stellwerk-labs/platform-orchestrator-dp "$dp_revision" internal/clients/platform-orchestrator-dp/spec.yaml "${DP_SPEC_PATH:-}"
