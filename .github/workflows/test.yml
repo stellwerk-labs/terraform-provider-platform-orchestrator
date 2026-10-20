@@ -53,11 +53,13 @@ jobs:
           python3 scripts/release_content_test.py
           python3 scripts/qualify_release_test.py
           python3 scripts/registry_release_test.py
-      - name: Validate release configuration without publishing
+      - name: Install pinned GoReleaser
         uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
           version: v2.18.1
-          args: check
+          install-only: true
+      - name: Validate release configuration without publishing
+        run: goreleaser check
       - name: Exercise pinned Registry checksum and dual-signature pipeline
         run: python3 scripts/registry-release-pipeline_test.py
       - name: Run linters

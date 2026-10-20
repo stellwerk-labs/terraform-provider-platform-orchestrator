@@ -131,28 +131,40 @@ func TestReleaseWorkflowSafety(t *testing.T) {
 	data, err = os.ReadFile("../.github/workflows/test.yml")
 	require.NoError(t, err)
 	require.NoError(t, yaml.Unmarshal(data, &workflow))
-	var hasConfigTest, hasConfigCheck, hasRegistryTests, hasPipelineTest bool
-	for _, step := range workflow.Jobs["build"].Steps {
+	var hasConfigTest, hasConfigInstall, hasConfigCheck, hasRegistryTests, hasPipelineTest bool
+	configInstallIndex, configCheckIndex, pipelineTestIndex := -1, -1, -1
+	for index, step := range workflow.Jobs["build"].Steps {
 		if strings.Contains(step.Run, "python3 scripts/registry_release_test.py") {
 			hasRegistryTests = true
 		}
 		if step.Run == "python3 scripts/registry-release-pipeline_test.py" {
 			hasPipelineTest = true
+			pipelineTestIndex = index
 		}
 		if step.Run == "go test -v ./scripts" {
 			hasConfigTest = true
 		}
 		if strings.HasPrefix(step.Uses, "goreleaser/goreleaser-action@") {
-			hasConfigCheck = true
+			hasConfigInstall = true
+			configInstallIndex = index
+			require.Equal(t, "goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94", step.Uses)
 			require.Equal(t, "v2.18.1", step.With["version"])
-			require.Equal(t, "check", step.With["args"])
+			require.Equal(t, "true", step.With["install-only"])
+			require.Empty(t, step.With["args"])
 			require.Empty(t, step.Env, "configuration validation needs no publication credentials")
+		}
+		if step.Run == "goreleaser check" {
+			hasConfigCheck = true
+			configCheckIndex = index
 		}
 	}
 	require.True(t, hasConfigTest)
+	require.True(t, hasConfigInstall)
 	require.True(t, hasConfigCheck)
 	require.True(t, hasRegistryTests)
 	require.True(t, hasPipelineTest)
+	require.Less(t, configInstallIndex, configCheckIndex, "the pinned action must install GoReleaser before its configuration check")
+	require.Less(t, configCheckIndex, pipelineTestIndex, "configuration validation must precede the real pipeline fixture")
 }
 
 func TestReleaseMetadataValidation(t *testing.T) {
