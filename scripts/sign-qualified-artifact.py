@@ -11,6 +11,45 @@ import tempfile
 import qualify_release as release
 
 
+def verify_gpg(artifact, signature, fingerprint):
+    for path in (artifact, signature):
+        if path.is_symlink() or not path.is_file() or not path.stat().st_size:
+            raise ValueError("signature verification requires exact regular evidence")
+    status = release.checked(["gpg", "--status-fd", "1", "--verify", str(signature), str(artifact)]).decode()
+    records = [line.split() for line in status.splitlines() if line.startswith("[GNUPG:] ")]
+    invalid = {"BADSIG", "ERRSIG", "EXPSIG", "EXPKEYSIG", "REVKEYSIG", "KEYREVOKED", "KEYEXPIRED", "SIGEXPIRED", "NO_PUBKEY"}
+    valid = [record for record in records if record[1] == "VALIDSIG"]
+    if (any(record[1] in invalid for record in records) or len(valid) != 1
+            or fingerprint.upper() not in (valid[0][2], valid[0][-1])):
+        raise ValueError("Registry signature does not bind the expected key")
+
+
+def sign_gpg(artifact, signature, fingerprint):
+    if not re.fullmatch(r"[A-Fa-f0-9]{40,64}", fingerprint):
+        raise ValueError("exact Registry signing fingerprint required")
+    if signature.parent != artifact.parent or signature.exists() or signature.is_symlink():
+        raise ValueError("signature must be a new adjacent artifact")
+    # Passphrase is stdin-only, never argv or log output.
+    subprocess.run(["gpg", "--batch", "--pinentry-mode", "loopback", "--passphrase-fd", "0",
+                    "--local-user", fingerprint, "--output", str(signature), "--detach-sign", str(artifact)],
+                   input=os.environ["GPG_PASSPHRASE"].encode() + b"\n", check=True)
+    verify_gpg(artifact, signature, fingerprint)
+
+
+def verify_provider_release(directory, fingerprint, expected_source):
+    """Authenticate both contracts before trusting the published payload graph."""
+    directory = Path(directory)
+    receipt = directory / "release-content.json"
+    verify_gpg(receipt, directory / "release-content.json.sig", fingerprint)
+    content = release.read_receipt(receipt)
+    if content["source"] != expected_source:
+        raise ValueError("published producer identity differs from the frozen source")
+    checksum = directory / ("terraform-provider-platform-orchestrator_" + content["source"]["version"] + "_SHA256SUMS")
+    verify_gpg(checksum, directory / (checksum.name + ".sig"), fingerprint)
+    release.verify_published_content(directory, content)
+    return content
+
+
 def main():
     mode, source, tag, version, artifact, signature, *remaining = sys.argv[1:]
     os.environ.update(QUALIFY_SOURCE_SHA=source, QUALIFY_TAG=tag, QUALIFY_VERSION=version)
@@ -37,17 +76,25 @@ def main():
                         "--certificate-oidc-issuer", "https://token.actions.githubusercontent.com", str(artifact)], check=True)
     elif mode == "gpg":
         fingerprint, = remaining
-        if not re.fullmatch(r"[A-Fa-f0-9]{40,64}", fingerprint):
-            raise ValueError("exact Registry signing fingerprint required")
-        # Keep the Registry's detached GPG checksum signature contract. The
-        # passphrase goes to GPG's stdin, never a process argument or log.
-        subprocess.run(["gpg", "--batch", "--pinentry-mode", "loopback", "--passphrase-fd", "0",
-                        "--local-user", fingerprint, "--output", str(signature), "--detach-sign", str(artifact)],
-                       input=os.environ["GPG_PASSPHRASE"].encode() + b"\n", check=True)
-        status = release.checked(["gpg", "--status-fd", "1", "--verify", str(signature), str(artifact)]).decode()
-        if not any(line.startswith("[GNUPG:] VALIDSIG ") and fingerprint.upper() in (line.split()[2], line.split()[-1])
-                   for line in status.splitlines()):
-            raise ValueError("Registry signature does not bind the expected key")
+        expected_checksum = "terraform-provider-platform-orchestrator_" + version + "_SHA256SUMS"
+        if artifact.name != expected_checksum or signature.name != expected_checksum + ".sig":
+            raise ValueError("provider signer requires the canonical Registry checksum")
+        receipt = artifact.parent / "release-content.json"
+        receipt_signature = artifact.parent / "release-content.json.sig"
+        if receipt_signature.exists() or receipt_signature.is_symlink():
+            raise ValueError("receipt signature must be a new adjacent artifact")
+        sign_gpg(artifact, signature, fingerprint)
+        # Retain every archive/SPDX/provenance subject under a separately signed
+        # full receipt; never weaken the qualified payload recheck.
+        release.recheck(artifact.parent, receipt)
+        sign_gpg(receipt, receipt_signature, fingerprint)
+        shipping_evidence.append(receipt_signature)
+        # End the complete dual-signing interval on the same qualified bytes,
+        # not merely the canonical checksum's earlier successful signature.
+        release.recheck(artifact.parent, artifact)
+        release.recheck(artifact.parent, receipt)
+        verify_gpg(artifact, signature, fingerprint)
+        verify_gpg(receipt, receipt_signature, fingerprint)
     else:
         raise ValueError("unsupported release signer")
     with tempfile.TemporaryDirectory(prefix="client-signature-scan-") as temporary:

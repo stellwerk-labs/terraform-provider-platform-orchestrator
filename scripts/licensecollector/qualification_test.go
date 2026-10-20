@@ -8,7 +8,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func TestReleaseQualifiesBeforeSigningAndChecksumsBindMetadata(t *testing.T) {
+func TestReleaseQualifiesBeforeSigningAndAuthenticatesBothContracts(t *testing.T) {
 	data, err := os.ReadFile("../../.goreleaser.yml")
 	if err != nil {
 		t.Fatal(err)
@@ -18,8 +18,9 @@ func TestReleaseQualifiesBeforeSigningAndChecksumsBindMetadata(t *testing.T) {
 			Artifacts, Cmd string
 			Documents, Env []string
 		} `yaml:"sboms"`
-		Signs    []struct{ Cmd string }
+		Signs    []struct{ Cmd, Artifacts string }
 		Checksum struct {
+			IDs        []string
 			ExtraFiles []struct{ Glob string } `yaml:"extra_files"`
 		}
 		Release struct {
@@ -43,19 +44,20 @@ func TestReleaseQualifiesBeforeSigningAndChecksumsBindMetadata(t *testing.T) {
 			t.Fatalf("qualification lost immutable producer input %s", required)
 		}
 	}
-	if len(config.Signs) != 1 || config.Signs[0].Cmd != "./scripts/sign-qualified-artifact.py" {
+	if len(config.Signs) != 1 || config.Signs[0].Cmd != "./scripts/sign-qualified-artifact.py" || config.Signs[0].Artifacts != "checksum" {
 		t.Fatal("release signing must recheck qualified bytes")
 	}
-	for _, glob := range []string{"dist/*.provenance.json", "dist/release-content.json"} {
-		checksummed, shipped := false, false
-		for _, file := range config.Checksum.ExtraFiles {
-			checksummed = checksummed || file.Glob == glob
-		}
+	if len(config.Checksum.IDs) != 1 || config.Checksum.IDs[0] != "provider-archives" ||
+		len(config.Checksum.ExtraFiles) != 1 || config.Checksum.ExtraFiles[0].Glob != "terraform-registry-manifest.json" {
+		t.Fatal("Registry checksums must select provider archives and the manifest, not proof companions")
+	}
+	for _, glob := range []string{"dist/*.provenance.json", "dist/release-content.json", "dist/release-content.json.sig"} {
+		shipped := false
 		for _, file := range config.Release.ExtraFiles {
 			shipped = shipped || file.Glob == glob
 		}
-		if !checksummed || !shipped {
-			t.Fatalf("metadata %s must ship and be included in the signed checksum contract", glob)
+		if !shipped {
+			t.Fatalf("metadata %s must ship under the independently signed full receipt contract", glob)
 		}
 	}
 }

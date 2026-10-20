@@ -32,7 +32,8 @@ builds:
       goarch: '386'
   binary: '{{ .ProjectName }}_v{{ .Version }}'
 archives:
-- formats:
+- id: provider-archives
+  formats:
     - zip
   name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
   builds_info:
@@ -55,11 +56,10 @@ archives:
     - src: licenses/notices.sha256.json
       info: *archive_info
 checksum:
+  ids: [provider-archives]
   extra_files:
     - glob: 'terraform-registry-manifest.json'
       name_template: '{{ .ProjectName }}_{{ .Version }}_manifest.json'
-    - glob: 'dist/*.provenance.json'
-    - glob: 'dist/release-content.json'
   name_template: '{{ .ProjectName }}_{{ .Version }}_SHA256SUMS'
   algorithm: sha256
 sboms:
@@ -100,5 +100,6 @@ release:
       name_template: '{{ .ProjectName }}_{{ .Version }}_manifest.json'
     - glob: 'dist/*.provenance.json'
     - glob: 'dist/release-content.json'
+    - glob: 'dist/release-content.json.sig'
   # If you want to manually examine the release before its live, uncomment this line:
   # draft: true

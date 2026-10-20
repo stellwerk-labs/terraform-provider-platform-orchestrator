@@ -17,6 +17,8 @@ import release_content as content
 ROOT = Path(__file__).resolve().parents[1]
 SYFT = "ghcr.io/anchore/syft@sha256:3eb5379ba7b409c3f4069b686110527af0c47df993fa5c10d13e7cf34f49b1aa"
 PROVENANCE = "https://slsa.dev/provenance/v1"
+PROVIDER_TARGETS = ("darwin_amd64", "darwin_arm64", "freebsd_386", "freebsd_amd64", "freebsd_arm", "freebsd_arm64",
+                    "linux_386", "linux_amd64", "linux_arm", "linux_arm64", "windows_386", "windows_amd64", "windows_arm64")
 
 
 def sha(path):
@@ -26,6 +28,17 @@ def sha(path):
 def write_json(path, value):
     with Path(path).open("x") as output:
         output.write(json.dumps(value, sort_keys=True, indent=2) + "\n")
+
+
+def read_receipt(path):
+    def unique(pairs):
+        result = {}
+        for name, value in pairs:
+            if name in result:
+                raise ValueError("duplicate qualified receipt key")
+            result[name] = value
+        return result
+    return json.loads(Path(path).read_text(), object_pairs_hook=unique)
 
 
 def checked(args, **options):
@@ -267,7 +280,7 @@ def recheck(dist, artifact):
     anchor = dist / "qualified-content/receipt.sha256"
     if receipt_path.is_symlink() or anchor.is_symlink() or anchor.read_text().strip() != sha(receipt_path):
         raise ValueError("qualified receipt changed before signing")
-    receipt = json.loads(receipt_path.read_text())
+    receipt = read_receipt(receipt_path)
     if receipt["source"] != identity():
         raise ValueError("qualified producer identity changed")
     notes = ROOT / "docs/releases" / (receipt["source"]["tag"] + ".md")
@@ -284,18 +297,32 @@ def recheck(dist, artifact):
     if artifact.name not in receipt["files"] and artifact.name not in ("release-content.json", checksum_name):
         raise ValueError("signer received an unqualified artifact")
     if artifact.name == checksum_name:
-        verify_checksums(artifact, receipt, dist)
+        verify_checksums(artifact, receipt, dist,
+                         registry=module_path().endswith("/terraform-provider-platform-orchestrator"))
     with tempfile.TemporaryDirectory(prefix="client-signing-check-") as temporary:
         shutil.copyfile(artifact, Path(temporary) / artifact.name)
         checked([str(ROOT / "scripts/scan-release-content.sh"), temporary, "jayonthenet"])
 
 
-def verify_checksums(path, receipt, dist):
+def published_files(receipt):
     expected = dict(receipt["files"])
     if "terraform-registry-manifest.json" in expected:
         value = expected.pop("terraform-registry-manifest.json")
         expected[module_path().rsplit("/", 1)[1] + "_" + receipt["source"]["version"] + "_manifest.json"] = value
-    expected["release-content.json"] = sha(Path(dist) / "release-content.json")
+    return expected
+
+
+def verify_checksums(path, receipt, dist, *, registry=False):
+    expected = published_files(receipt)
+    if registry:
+        # Registry ingestion accepts provider ZIPs and its manifest, not the
+        # companion proof assets. Their full closure has its own signed receipt.
+        manifest = "terraform-provider-platform-orchestrator_" + receipt["source"]["version"] + "_manifest.json"
+        if manifest not in expected or not any(name.endswith(".zip") for name in expected):
+            raise ValueError("Registry checksums require provider archives and manifest")
+        expected = {name: value for name, value in expected.items() if name.endswith(".zip") or name == manifest}
+    else:
+        expected["release-content.json"] = sha(Path(dist) / "release-content.json")
     actual = {}
     for line in Path(path).read_text().splitlines():
         match = re.fullmatch(r"([0-9a-f]{64})  ([A-Za-z0-9_.+-]+)", line)
@@ -303,7 +330,34 @@ def verify_checksums(path, receipt, dist):
             raise ValueError("malformed or duplicate release checksum entry")
         actual[match[2]] = match[1]
     if actual != expected:
-        raise ValueError("signed checksums must bind every exact qualified shipping asset")
+        raise ValueError("signed checksums must bind the exact qualified checksum contract")
+
+
+def verify_published_content(dist, receipt):
+    """Check the complete provider payload closure after both signatures verify."""
+    dist = Path(dist)
+    checksum = "terraform-provider-platform-orchestrator_" + receipt["source"]["version"] + "_SHA256SUMS"
+    prefix = "terraform-provider-platform-orchestrator_" + receipt["source"]["version"]
+    subjects = {prefix + "_manifest.json"} | {prefix + "_" + target + ".zip" + suffix
+                 for target in PROVIDER_TARGETS for suffix in ("", ".spdx.json", ".provenance.json")}
+    source_subjects = (subjects - {prefix + "_manifest.json"}) | {"terraform-registry-manifest.json"}
+    if set(receipt["files"]) != source_subjects:
+        raise ValueError("signed receipt must cover exactly thirteen provider targets and all companions")
+    expected = published_files(receipt)
+    if set(expected) != subjects:
+        raise ValueError("signed receipt must cover exactly thirteen provider targets and all companions")
+    required = set(expected) | {"release-content.json", "release-content.json.sig", checksum, checksum + ".sig"}
+    if {path.name for path in dist.iterdir()} != required:
+        raise ValueError("published asset set differs from the complete signed closure")
+    for name, digest in expected.items():
+        path = dist / name
+        if path.is_symlink() or not path.is_file() or sha(path) != digest:
+            raise ValueError("published qualified payload bytes changed")
+    for name in required - set(expected):
+        path = dist / name
+        if path.is_symlink() or not path.is_file() or not path.stat().st_size:
+            raise ValueError("missing regular checksum, receipt or signature")
+    verify_checksums(dist / checksum, receipt, dist, registry=True)
 
 
 def main():
