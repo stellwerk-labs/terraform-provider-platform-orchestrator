@@ -1,0 +1,54 @@
+[
+  {
+    "module": "github.com/hashicorp/go-plugin",
+    "version": "v1.6.3",
+    "sum": "h1:xgHB+ZUSYeuJi96WtxEjzi23uh7YQpznjGh0U0UUrwg=",
+    "path": "licenses/github.com/hashicorp/go-plugin/plugin_test.go",
+    "sha256": "af90116ae2ce4ef20761370f7aced8b3c9fa9c79cdff8c8cd0c1d1785ff18e8b",
+    "source": "https://raw.githubusercontent.com/hashicorp/go-plugin/v1.6.3/plugin_test.go",
+    "reason": "Deliberate public TestClusterServerKey, used by testTLSConfig with TestClusterServerCert.",
+    "findings": [
+      {
+        "rule": "private-key",
+        "match": "746c4818c43e79294f0982801e7c77ecd0b028f4874cfafff155b0bc10b164c1",
+        "secret": "746c4818c43e79294f0982801e7c77ecd0b028f4874cfafff155b0bc10b164c1",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "module": "github.com/hashicorp/terraform-plugin-framework",
+    "version": "v1.15.0",
+    "sum": "h1:LQ2rsOfmDLxcn5EeIwdXFtr03FVsNktbbBci8cOKdb4=",
+    "path": "licenses/github.com/hashicorp/terraform-plugin-framework/internal/privatestate/data_test.go",
+    "sha256": "ef4715540e4e535b202415ed9163bbad16f9cb56257585de687203a1b98c4634",
+    "source": "https://raw.githubusercontent.com/hashicorp/terraform-plugin-framework/v1.15.0/internal/privatestate/data_test.go",
+    "reason": "Exact public TestData_Bytes private-state fixture values, not credentials.",
+    "findings": [
+      {
+        "rule": "generic-api-key",
+        "match": "16020b69393cea414550c0518214f51af82117e53bb91105a8aca99b85b8f86d",
+        "secret": "552c4b29d235de6182287ecc7166ac939b9a5b752a3ad7ee6220aa03a90a9aa9",
+        "count": 4
+      },
+      {
+        "rule": "generic-api-key",
+        "match": "29ce7b669313fe4c7a741b58ee513b4170a5a15b018a6c1453e5b0a6376a04ee",
+        "secret": "858ed25fd11a0b756179fc3ffba2fbbf88ff0a67a22e62829eb7ca8bd209e83c",
+        "count": 2
+      },
+      {
+        "rule": "generic-api-key",
+        "match": "78e32ccd29ba97174ae0933df6ab8a181931d89bc50cfd42268a492325b4e3e3",
+        "secret": "5016c14c5574a5fe184c6fd3a23f7b908feb32b948e15d4f6e80f13586a3fd27",
+        "count": 4
+      },
+      {
+        "rule": "generic-api-key",
+        "match": "b1fa04bdafad78861476b8c1d1a22d9af30c866b4a2d1cedc28c6419744e0eb6",
+        "secret": "c8ac37387c23e20aedae6457da219e0f625771777ebf7d69171f0f10b587eda4",
+        "count": 2
+      }
+    ]
+  }
+]

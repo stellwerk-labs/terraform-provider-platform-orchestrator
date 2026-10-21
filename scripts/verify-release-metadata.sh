@@ -14,15 +14,19 @@ fi
 
 if ! jq -e --arg tag "$release_tag" --argjson prerelease "$expected_prerelease" --rawfile notes "$notes_file" '
   ("terraform-provider-platform-orchestrator_" + ($tag | ltrimstr("v"))) as $prefix
+  | ["darwin_amd64", "darwin_arm64", "freebsd_386", "freebsd_amd64",
+     "freebsd_arm", "freebsd_arm64", "linux_386", "linux_amd64", "linux_arm",
+     "linux_arm64", "windows_386", "windows_amd64", "windows_arm64"] as $targets
+  | (["release-content.json", "release-content.json.sig", $prefix + "_manifest.json",
+      $prefix + "_SHA256SUMS", $prefix + "_SHA256SUMS.sig"] +
+      [$targets[] | ($prefix + "_" + . + ".zip") as $zip |
+       $zip, ($zip + ".spdx.json"), ($zip + ".provenance.json")]) as $expected
   | .tagName == $tag
     and .isDraft == false
     and .isPrerelease == $prerelease
     and (.body | type) == "string"
     and (.body | sub("\\n+$"; "")) == ($notes | sub("\\n+$"; ""))
-    and (.assets | length) >= 16
-    and ([.assets[].name] | index($prefix + "_SHA256SUMS") != null)
-    and ([.assets[].name] | index($prefix + "_SHA256SUMS.sig") != null)
-    and ([.assets[].name] | index($prefix + "_manifest.json") != null)
+    and ([.assets[].name] | sort) == ($expected | sort)
 ' > /dev/null; then
   printf 'Release metadata or required signed artifacts do not match %s (prerelease=%s); check reviewed notes too.\n' \
     "$release_tag" "$expected_prerelease" >&2

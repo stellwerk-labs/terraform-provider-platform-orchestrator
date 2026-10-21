@@ -5,6 +5,7 @@ before:
   hooks:
     # this is just an example and not a requirement for provider building/publishing
     - go mod tidy
+    - ./scripts/collect-licenses.sh --replace-generated licenses
 builds:
 - env:
     # goreleaser does not work with CGO, it could also complicate
@@ -31,36 +32,74 @@ builds:
       goarch: '386'
   binary: '{{ .ProjectName }}_v{{ .Version }}'
 archives:
-- formats:
+- id: provider-archives
+  formats:
     - zip
   name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
+  builds_info:
+    owner: root
+    group: root
+    mtime: '{{ .CommitDate }}'
+  files:
+    - src: LICENSE
+      info: &archive_info
+        owner: root
+        group: root
+        mode: 0644
+        mtime: '{{ .CommitDate }}'
+    - src: README.md
+      info: *archive_info
+    - src: licenses/**/*
+      info: *archive_info
+    - src: licenses/modules.json
+      info: *archive_info
+    - src: licenses/notices.sha256.json
+      info: *archive_info
 checksum:
+  ids: [provider-archives]
   extra_files:
     - glob: 'terraform-registry-manifest.json'
       name_template: '{{ .ProjectName }}_{{ .Version }}_manifest.json'
   name_template: '{{ .ProjectName }}_{{ .Version }}_SHA256SUMS'
   algorithm: sha256
+sboms:
+  - id: qualified-release
+    artifacts: any
+    documents: ["*.spdx.json"]
+    cmd: qualify-release-content.sh
+    args: []
+    env:
+      - GOTOOLCHAIN=go1.26.2
+      - GOWORK=off
+      - GOENV=off
+      - QUALIFY_SOURCE_SHA={{ .FullCommit }}
+      - QUALIFY_VERSION={{ .Version }}
+      - QUALIFY_TAG={{ .Tag }}
+      - QUALIFY_REPOSITORY={{ .Env.GITHUB_REPOSITORY }}
+      - QUALIFY_WORKFLOW_REF={{ .Env.GITHUB_WORKFLOW_REF }}
+      - QUALIFY_WORKFLOW_SHA={{ .Env.GITHUB_WORKFLOW_SHA }}
+      - QUALIFY_RUN_ID={{ .Env.GITHUB_RUN_ID }}
+      - QUALIFY_RUN_ATTEMPT={{ .Env.GITHUB_RUN_ATTEMPT }}
+
 signs:
-  - artifacts: checksum
+  - cmd: ./scripts/sign-qualified-artifact.py
+    artifacts: checksum
     args:
-      # if you are using this in a GitHub action or some other automated pipeline, you 
-      # need to pass the batch flag to indicate its not interactive.
-      - "--batch"
-      - "--pinentry-mode"
-      - "loopback"
-      - "--passphrase"
-      - "{{ .Env.GPG_PASSPHRASE }}"
-      - "--local-user"
-      - "{{ .Env.GPG_FINGERPRINT }}" # set this environment variable for your signing key
-      - "--output"
-      - "${signature}"
-      - "--detach-sign"
+      - gpg
+      - '{{ .FullCommit }}'
+      - '{{ .Tag }}'
+      - '{{ .Version }}'
       - "${artifact}"
+      - "${signature}"
+      - "{{ .Env.GPG_FINGERPRINT }}"
 release:
   prerelease: auto
   make_latest: '{{ if .Prerelease }}false{{ else }}true{{ end }}'
   extra_files:
     - glob: 'terraform-registry-manifest.json'
       name_template: '{{ .ProjectName }}_{{ .Version }}_manifest.json'
+    - glob: 'dist/*.provenance.json'
+    - glob: 'dist/release-content.json'
+    - glob: 'dist/release-content.json.sig'
   # If you want to manually examine the release before its live, uncomment this line:
   # draft: true

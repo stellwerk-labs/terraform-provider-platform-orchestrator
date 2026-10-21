@@ -13,6 +13,13 @@ on:
 permissions:
   contents: read
 
+env:
+  GOTOOLCHAIN: go1.26.2
+  GOWORK: 'off'
+  GOENV: 'off'
+  GOFLAGS: ''
+  GOEXPERIMENT: ''
+
 jobs:
   test:
     uses: ./.github/workflows/test.yml
@@ -34,7 +41,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: 'go.mod'
+          go-version: '1.26.2'
           cache: true
       - name: Import GPG key
         uses: crazy-max/ghaction-import-gpg@2dc316deee8e90f13e1a351ab510b4d5bc0c82cd # v7.0.0
@@ -42,6 +49,13 @@ jobs:
         with:
           gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
           passphrase: ${{ secrets.GPG_PASSPHRASE }}
+      - name: Install verified release-content tools
+        run: |
+          ./scripts/install-release-tools.sh "$RUNNER_TEMP/release-tools"
+          echo "$RUNNER_TEMP/release-tools" >> "$GITHUB_PATH"
+          echo "$GITHUB_WORKSPACE/scripts" >> "$GITHUB_PATH"
+          source scripts/release-tools.sh
+          docker pull "$syft_image"
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:

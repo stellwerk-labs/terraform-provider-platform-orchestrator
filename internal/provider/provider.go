@@ -39,6 +39,7 @@ const (
 	PO_API_URL_ENV_VAR    = "PO_API_URL"
 	PO_ORG_ID_ENV_VAR     = "PO_ORG_ID"
 	PO_AUTH_TOKEN_ENV_VAR = "PO_AUTH_TOKEN"
+	PO_CA_FILE_ENV_VAR    = "PO_CA_FILE"
 
 	PO_DEFAULT_API_URL = "https://api.stellwerk.localhost"
 
@@ -65,6 +66,7 @@ type PlatformOrchestratorProviderModel struct {
 	ApiUrl         types.String `tfsdk:"api_url"`
 	OrgId          types.String `tfsdk:"org_id"`
 	AuthToken      types.String `tfsdk:"auth_token"`
+	CaFile         types.String `tfsdk:"ca_file"`
 }
 
 type PlatformOrchestratorProviderData struct {
@@ -98,6 +100,10 @@ func (p *PlatformOrchestratorProvider) Schema(ctx context.Context, req provider.
 			"auth_token": schema.StringAttribute{
 				MarkdownDescription: "Platform Orchestrator Auth Token. Takes precedence over the contents of octl_config_file but overridden by the PO_AUTH_TOKEN environment variable.",
 				Sensitive:           true,
+				Optional:            true,
+			},
+			"ca_file": schema.StringAttribute{
+				MarkdownDescription: "Path to a PEM CA bundle that is appended to the operating-system trust roots, for an API served with a private certificate authority. Falls back to the PO_CA_FILE environment variable when omitted. Hostname verification and TLS 1.2 or newer remain required.",
 				Optional:            true,
 			},
 		},
@@ -209,6 +215,19 @@ func loadClientConfig(ctx context.Context, data PlatformOrchestratorProviderMode
 	return apiUrl, orgId, authToken
 }
 
+// newAPIHTTPClient is the HTTP client of every API call: retries over the
+// secure transport, which trusts caFile in addition to the system roots.
+func newAPIHTTPClient(caFile string) (*http.Client, error) {
+	transport, err := newSecureAPITransport(caFile)
+	if err != nil {
+		return nil, err
+	}
+	return &http.Client{
+		Transport: retryhttp.New(retryhttp.WithTransport(transport)),
+		Timeout:   30 * time.Second,
+	}, nil
+}
+
 func (p *PlatformOrchestratorProvider) Configure(ctx context.Context, req provider.ConfigureRequest, resp *provider.ConfigureResponse) {
 	var data PlatformOrchestratorProviderModel
 
@@ -260,9 +279,14 @@ func (p *PlatformOrchestratorProvider) Configure(ctx context.Context, req provid
 		return nil
 	}
 
-	client := &http.Client{
-		Transport: retryhttp.New(),
-		Timeout:   30 * time.Second,
+	caFile := data.CaFile.ValueString()
+	if caFile == "" {
+		caFile = os.Getenv(PO_CA_FILE_ENV_VAR)
+	}
+	client, err := newAPIHTTPClient(caFile)
+	if err != nil {
+		resp.Diagnostics.AddError(PO_INPUT_ERR, "Unable to configure API TLS: "+err.Error())
+		return
 	}
 
 	cpc, err := cp.NewClientWithResponses(apiUrl, cp.WithRequestEditorFn(extraHeadersEditor), cp.WithHTTPClient(client))
@@ -313,6 +337,7 @@ func (p *PlatformOrchestratorProvider) Resources(ctx context.Context) []func() r
 		NewModuleVersionPinResource,
 		NewModuleVersionPinNoteResource,
 		NewModuleVersionPinBulkOperationResource,
+		NewProgressiveRolloutResource,
 		NewModuleRuleResource,
 		NewRunnerRuleResource,
 		NewEnvironmentResource,
@@ -320,6 +345,7 @@ func (p *PlatformOrchestratorProvider) Resources(ctx context.Context) []func() r
 		NewRoleResource,
 		NewScimGroupMappingResource,
 		NewMetadataKeyResource,
+		NewPluginEnablementResource,
 	}
 }
 
@@ -343,6 +369,7 @@ func (p *PlatformOrchestratorProvider) DataSources(ctx context.Context) []func()
 		NewModuleVersionDataSource,
 		NewModuleVersionsDataSource,
 		NewModuleVersionPinDataSource,
+		NewProgressiveRolloutDataSource,
 		NewModuleRuleDataSource,
 		NewRunnerRuleDataSource,
 		NewEnvironmentDataSource,
@@ -352,6 +379,7 @@ func (p *PlatformOrchestratorProvider) DataSources(ctx context.Context) []func()
 		NewScimGroupMappingsDataSource,
 		NewMetadataKeyDataSource,
 		NewMetadataKeysDataSource,
+		NewPluginInstallationDataSource,
 	}
 }
 

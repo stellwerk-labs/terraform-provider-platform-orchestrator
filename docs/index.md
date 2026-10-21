@@ -34,5 +34,6 @@ provider "platform-orchestrator" {
 
 - `api_url` (String) Platform Orchestrator API URL prefix. Takes precedence over the contents of octl_config_file but overridden by the PO_API_URL environment variable.
 - `auth_token` (String, Sensitive) Platform Orchestrator Auth Token. Takes precedence over the contents of octl_config_file but overridden by the PO_AUTH_TOKEN environment variable.
+- `ca_file` (String) Path to a PEM CA bundle that is appended to the operating-system trust roots, for an API served with a private certificate authority. Falls back to the PO_CA_FILE environment variable when omitted. Hostname verification and TLS 1.2 or newer remain required.
 - `octl_config_file` (String) Path to the octl config file path. Takes precedences over the PO_ environment variables.
 - `org_id` (String) Platform Orchestrator Organization ID. Takes precedence over the contents of octl_config_file but overridden by the PO_ORG_ID environment variable.

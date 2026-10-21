@@ -3,11 +3,12 @@ package provider
 import (
 	"cmp"
 	"context"
+	"encoding/pem"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -19,7 +20,6 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
-	"github.com/justinrixx/retryhttp"
 )
 
 // testAccProtoV6ProviderFactories is used to instantiate a provider during acceptance testing.
@@ -40,18 +40,43 @@ func checkEnvVar(t *testing.T, name string) {
 	}
 }
 
+// NewPlatformOrchestratorControlPlaneClient reaches the server under test as
+// the provider does, with the PO_ environment variables, PO_CA_FILE included.
 func NewPlatformOrchestratorControlPlaneClient(t *testing.T) *cp.ClientWithResponses {
+	client, err := newAPIHTTPClient(os.Getenv(PO_CA_FILE_ENV_VAR))
+	if err != nil {
+		t.Fatalf("Error configuring the API TLS: %s", err)
+	}
 	cpc, err := cp.NewClientWithResponses(cmp.Or(os.Getenv(PO_API_URL_ENV_VAR), PO_DEFAULT_API_URL), cp.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
 		req.Header.Set("Authorization", "Bearer "+os.Getenv(PO_AUTH_TOKEN_ENV_VAR))
 		return nil
-	}), cp.WithHTTPClient(&http.Client{
-		Transport: retryhttp.New(),
-		Timeout:   30 * time.Second,
-	}))
+	}), cp.WithHTTPClient(client))
 	if err != nil {
 		t.Fatalf("Error creating Platform Orchestrator Controlplane client: %s", err)
 	}
 	return cpc
+}
+
+// The acceptance checks reach a server with a private certificate authority
+// through PO_CA_FILE, exactly as the provider under test does.
+func TestNewPlatformOrchestratorControlPlaneClientTrustsPOCAFile(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer a-token" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(server.Close)
+	caFile := filepath.Join(t.TempDir(), "ca.pem")
+	require.NoError(t, os.WriteFile(caFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw}), 0o600))
+	t.Setenv(PO_API_URL_ENV_VAR, server.URL)
+	t.Setenv(PO_AUTH_TOKEN_ENV_VAR, "a-token")
+	t.Setenv(PO_CA_FILE_ENV_VAR, caFile)
+
+	response, err := NewPlatformOrchestratorControlPlaneClient(t).GetOrganizationWithResponse(t.Context(), "some-org")
+	require.NoError(t, err)
+	require.Equal(t, http.StatusNoContent, response.StatusCode())
 }
 
 func clearEnv(t *testing.T) {

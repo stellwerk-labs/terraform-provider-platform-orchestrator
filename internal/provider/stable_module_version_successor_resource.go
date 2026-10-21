@@ -2,7 +2,6 @@ package provider
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -79,7 +78,7 @@ func stableSuccessorBody(state StableModuleVersionSuccessorResourceModel) (cp.St
 		return cp.StableModuleVersionSuccessorBody{}, fmt.Errorf("reason must not be empty")
 	}
 	var version cp.ModuleVersionPublishBody
-	if err := json.Unmarshal([]byte(state.Definition.ValueString()), &version); err != nil {
+	if err := decodeModuleVersionDefinition(state.Definition.ValueString(), &version); err != nil {
 		return cp.StableModuleVersionSuccessorBody{}, fmt.Errorf("definition is not a valid Module Version publication: %w", err)
 	}
 	if strings.TrimSpace(version.SemanticVersion) == "" {

@@ -13,6 +13,9 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/tfjsonpath"
 )
 
+// TestAccRunnerRuleResourceBasic starts with a rule without project and
+// environment type: the organization's catch-all. Core keeps one rule per
+// scope, so it needs an organization that has no catch-all rule yet.
 func TestAccRunnerRuleResourceBasic(t *testing.T) {
 	var runnerId = fmt.Sprintf("test-runner-%d", time.Now().UnixNano())
 	var envTypeId = fmt.Sprintf("test-env-type-%d", time.Now().UnixNano())

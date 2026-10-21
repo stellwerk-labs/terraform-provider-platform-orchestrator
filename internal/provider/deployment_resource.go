@@ -16,6 +16,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
@@ -23,6 +24,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
+	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"gopkg.in/yaml.v3"
 
@@ -32,6 +34,7 @@ import (
 
 var _ resource.Resource = &DeploymentResource{}
 var _ resource.ResourceWithConfigure = &DeploymentResource{}
+var _ resource.ResourceWithValidateConfig = &DeploymentResource{}
 
 func NewDeploymentResource() resource.Resource {
 	return &DeploymentResource{}
@@ -54,6 +57,8 @@ type DeploymentResourceModel struct {
 	StatusMessage types.String   `tfsdk:"status_message"`
 	RunnerId      types.String   `tfsdk:"runner_id"`
 	WaitFor       types.Bool     `tfsdk:"wait_for"`
+	WhenBusy      types.String   `tfsdk:"when_busy"`
+	HaltOnFailure types.Bool     `tfsdk:"halt_on_failure"`
 	Outputs       types.String   `tfsdk:"outputs"`
 	Timeouts      timeouts.Value `tfsdk:"timeouts"`
 }
@@ -102,10 +107,12 @@ func (d *DeploymentResource) Schema(ctx context.Context, request resource.Schema
 				},
 			},
 			"mode": schema.StringAttribute{
-				MarkdownDescription: "The mode of the deployment. 'deploy' (the default) or 'plan_only'.",
-				Computed:            true,
-				Optional:            true,
-				Default:             stringdefault.StaticString(string(dp.DeploymentCreateBodyModeDeploy)),
+				MarkdownDescription: "The mode of the deployment. 'deploy' (the default) or 'plan_only'. " +
+					"A `plan_only` deployment is never queued and does not run beside another deployment of the environment; " +
+					"while deployments wait in the environment's deployment queue, it plans the environment as it is now and the apply warns that the result may change.",
+				Computed: true,
+				Optional: true,
+				Default:  stringdefault.StaticString(string(dp.DeploymentCreateBodyModeDeploy)),
 				Validators: []validator.String{
 					stringvalidator.OneOf(string(dp.DeploymentCreateBodyModeDeploy), string(dp.DeploymentCreateBodyModePlanOnly)),
 				},
@@ -145,10 +152,55 @@ func (d *DeploymentResource) Schema(ctx context.Context, request resource.Schema
 				Computed:            true,
 				Sensitive:           true,
 			},
+			// Deliberately without a schema default: null means queue, so
+			// existing state plans no change and no redeploy after an upgrade.
+			"when_busy": schema.StringAttribute{
+				MarkdownDescription: "What the deployment does when its environment is busy with another deployment or already has queued deployments. " +
+					"`queue` (the default) waits in the environment's deployment queue and starts in order once the environment is free; " +
+					"the create or update timeout covers that wait, and a request still queued when it elapses is cancelled. " +
+					"`reject` fails with `environment_busy` instead. " +
+					"Leaving it unset means `queue`, which is also the Data Plane's own default; the provider sends the value explicitly either way. " +
+					"A provider authorized by an organization token cannot wait in the queue and gets `environment_busy` from a busy environment. " +
+					"`plan_only` deployments are never queued. Changing only `when_busy` updates state without redeploying.",
+				Optional: true,
+				Validators: []validator.String{
+					stringvalidator.OneOf(whenBusyQueue, whenBusyReject),
+				},
+			},
+			// Without a schema default for the same reason as when_busy: null
+			// means false.
+			"halt_on_failure": schema.BoolAttribute{
+				MarkdownDescription: "Whether a deployment that waits in the environment's deployment queue must not start when the deployment it waited for failed. " +
+					"The queued request is then rejected with `previous_deployment_failed`, the apply fails and names the failed deployment, " +
+					"and the queue continues with the next request. Unset means `false`. " +
+					"A deployment that starts at once never halts, and `plan_only` deployments are never queued. " +
+					"Not valid with `when_busy = \"reject\"`. Changing only `halt_on_failure` updates state without redeploying.",
+				Optional: true,
+			},
 		},
 		Blocks: map[string]schema.Block{
-			"timeouts": timeouts.Block(ctx, timeouts.Opts{Delete: true}),
+			"timeouts": timeouts.Block(ctx, timeouts.Opts{
+				Create:            true,
+				Update:            true,
+				Delete:            true,
+				CreateDescription: "A string that can be [parsed as a duration](https://pkg.go.dev/time#ParseDuration), for example `60m`. How long to create the deployment, including its wait in the environment's deployment queue and, with `wait_for`, for its completion. Defaults to 20m.",
+				UpdateDescription: "A string that can be [parsed as a duration](https://pkg.go.dev/time#ParseDuration), for example `60m`. How long to redeploy, including the wait in the environment's deployment queue and, with `wait_for`, for completion. Defaults to 20m.",
+			}),
 		},
+	}
+}
+
+// ValidateConfig refuses halt_on_failure with when_busy = "reject": only a
+// deployment that may wait in the queue can halt, and the Data Plane answers
+// the combination with 400.
+func (d *DeploymentResource) ValidateConfig(ctx context.Context, request resource.ValidateConfigRequest, response *resource.ValidateConfigResponse) {
+	var whenBusy types.String
+	var halt types.Bool
+	response.Diagnostics.Append(request.Config.GetAttribute(ctx, path.Root("when_busy"), &whenBusy)...)
+	response.Diagnostics.Append(request.Config.GetAttribute(ctx, path.Root("halt_on_failure"), &halt)...)
+	if halt.ValueBool() && whenBusy.ValueString() == whenBusyReject {
+		response.Diagnostics.AddAttributeError(path.Root("halt_on_failure"), "Invalid halt_on_failure",
+			`halt_on_failure = true only applies to a deployment that may wait in the environment's deployment queue; it is not valid with when_busy = "reject".`)
 	}
 }
 
@@ -185,42 +237,56 @@ func (d *DeploymentResource) doDeployment(ctx context.Context, data *DeploymentR
 	}
 
 	outputsKey, _ = age.GenerateX25519Identity()
-	if r, err := d.dpClient.CreateDeploymentWithResponse(
-		ctx, d.orgId, &dp.CreateDeploymentParams{IdempotencyKey: ref.Ref(uuid.NewString())},
-		dp.DeploymentCreateBody{
-			ProjectId:                 data.ProjectId.ValueString(),
-			EnvId:                     data.EnvId.ValueString(),
-			Manifest:                  &manifest,
-			Mode:                      dp.DeploymentCreateBodyMode(data.Mode.ValueString()),
-			EncryptedOutputsRecipient: ref.Ref(outputsKey.Recipient().String()),
-		},
-	); err != nil {
-		diags.AddError(PO_CLIENT_ERR, fmt.Sprintf("Unable to create deployment, got error: %s", err))
-		return
-	} else if r.StatusCode() != http.StatusCreated {
-		diags.AddError(PO_API_ERR, fmt.Sprintf("Unable to create deployment, unexpected status code: %d, body: %s", r.StatusCode(), r.Body))
-		return
-	} else {
-		data.Id = types.StringValue(r.JSON201.Id.String())
-		data.CreatedAt = types.StringValue(r.JSON201.CreatedAt.Format(time.RFC3339))
-		data.CompletedAt = types.StringNull()
-		data.Outputs = types.StringNull()
-		data.Status = types.StringValue(r.JSON201.Status)
-		data.StatusMessage = types.StringValue(r.JSON201.StatusMessage)
-		data.RunnerId = types.StringValue(r.JSON201.RunnerId)
+	body := dp.DeploymentCreateBody{
+		ProjectId:                 data.ProjectId.ValueString(),
+		EnvId:                     data.EnvId.ValueString(),
+		Manifest:                  &manifest,
+		Mode:                      dp.DeploymentCreateBodyMode(data.Mode.ValueString()),
+		EncryptedOutputsRecipient: ref.Ref(outputsKey.Recipient().String()),
 	}
+	// Always explicit for deploys: the Data Plane queues a request without
+	// when_busy, so reject has to be asked for. plan_only is never queued.
+	if body.Mode == dp.DeploymentCreateBodyModeDeploy {
+		body.WhenBusy = ref.Ref(dp.Queue)
+		if data.WhenBusy.ValueString() == whenBusyReject {
+			body.WhenBusy = ref.Ref(dp.Reject)
+		} else if data.HaltOnFailure.ValueBool() {
+			body.HaltOnFailure = ref.Ref(true)
+		}
+	}
+	r, err := d.dpClient.CreateDeploymentWithResponse(ctx, d.orgId, &dp.CreateDeploymentParams{IdempotencyKey: ref.Ref(uuid.NewString())}, body)
+	var deployment *dp.Deployment
+	switch {
+	case err != nil:
+		diags.AddError(PO_CLIENT_ERR, fmt.Sprintf("Unable to create deployment, got error: %s", err))
+	case r.StatusCode() == http.StatusConflict:
+		fenced := ""
+		if r.JSON409 != nil && r.JSON409.Error == string(dp.OutcomeUnreconciled) {
+			fenced = d.environmentFenceDetail(ctx, body.ProjectId, body.EnvId)
+		}
+		addDeploymentConflictError(diags, body.WhenBusy, r.JSON409, r.Body, fenced)
+	case r.StatusCode() == http.StatusAccepted && r.JSON202 != nil:
+		deployment = d.awaitQueuedDeployment(ctx, *r.JSON202, diags)
+	case r.StatusCode() == http.StatusCreated && r.JSON201 != nil:
+		deployment = r.JSON201
+		addPendingChangesWarning(diags, deployment.PendingChanges)
+	default:
+		diags.AddError(PO_API_ERR, fmt.Sprintf("Unable to create deployment, unexpected status code: %d, body: %s", r.StatusCode(), r.Body))
+	}
+	if deployment == nil {
+		return nil
+	}
+	data.Id = types.StringValue(deployment.Id.String())
+	data.CreatedAt = types.StringValue(deployment.CreatedAt.Format(time.RFC3339))
+	data.CompletedAt = types.StringNull()
+	data.Outputs = types.StringNull()
+	data.Status = types.StringValue(deployment.Status)
+	data.StatusMessage = types.StringValue(deployment.StatusMessage)
+	data.RunnerId = types.StringValue(deployment.RunnerId)
 	return outputsKey
 }
 
 func (d *DeploymentResource) waitForDeployment(ctx context.Context, data *DeploymentResourceModel, diags *diag.Diagnostics, outputsKey *age.X25519Identity) {
-	deleteTimeout, dd := data.Timeouts.Create(ctx, DefaultAsyncTimeout)
-	if dd.HasError() {
-		diags.Append(dd...)
-		return
-	}
-	ctx, cancel := context.WithTimeout(ctx, deleteTimeout)
-	defer cancel()
-
 	deploymentUuid, err := uuid.Parse(data.Id.ValueString())
 	if err != nil {
 		diags.AddError(PO_API_ERR, fmt.Sprintf("Unable to parse deployment ID, got error: %s", err))
@@ -275,16 +341,31 @@ func (d *DeploymentResource) Create(ctx context.Context, request resource.Create
 	if response.Diagnostics.HasError() {
 		return
 	}
-
-	outputsKey := d.doDeployment(ctx, &data, &response.Diagnostics)
+	timeout, diags := data.Timeouts.Create(ctx, DefaultAsyncTimeout)
+	response.Diagnostics.Append(diags...)
 	if response.Diagnostics.HasError() {
 		return
 	}
-	response.Diagnostics.Append(response.State.Set(ctx, &data)...)
-	if data.WaitFor.ValueBool() {
-		d.waitForDeployment(ctx, &data, &response.Diagnostics, outputsKey)
-		response.Diagnostics.Append(response.State.Set(ctx, &data)...)
+	d.deploy(ctx, timeout, &data, &response.State, &response.Diagnostics)
+}
+
+// deploy creates the deployment, waits in the environment's deployment queue
+// if needed and, with wait_for, for completion, all within timeout. A started
+// deployment is always recorded in state, even when a later step fails.
+func (d *DeploymentResource) deploy(ctx context.Context, timeout time.Duration, data *DeploymentResourceModel, state *tfsdk.State, diags *diag.Diagnostics) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	outputsKey := d.doDeployment(ctx, data, diags)
+	if outputsKey == nil {
+		return
 	}
+	diags.Append(state.Set(ctx, data)...)
+	if diags.HasError() || !data.WaitFor.ValueBool() {
+		return
+	}
+	d.waitForDeployment(ctx, data, diags, outputsKey)
+	diags.Append(state.Set(ctx, data)...)
 }
 
 func (d *DeploymentResource) Read(ctx context.Context, request resource.ReadRequest, response *resource.ReadResponse) {
@@ -323,21 +404,28 @@ func (d *DeploymentResource) Read(ctx context.Context, request resource.ReadRequ
 }
 
 func (d *DeploymentResource) Update(ctx context.Context, request resource.UpdateRequest, response *resource.UpdateResponse) {
-	var data DeploymentResourceModel
+	var data, prior DeploymentResourceModel
 	response.Diagnostics.Append(request.Plan.Get(ctx, &data)...)
+	response.Diagnostics.Append(request.State.Get(ctx, &prior)...)
 	if response.Diagnostics.HasError() {
 		return
 	}
-
-	outputsKey := d.doDeployment(ctx, &data, &response.Diagnostics)
-	if response.Diagnostics.HasError() {
-		return
-	}
-	response.Diagnostics.Append(response.State.Set(ctx, &data)...)
-	if data.WaitFor.ValueBool() {
-		d.waitForDeployment(ctx, &data, &response.Diagnostics, outputsKey)
+	// when_busy, halt_on_failure and timeouts say how to deploy, not what:
+	// changing only them, for example to wait longer in the queue, must not
+	// redeploy.
+	if data.ProjectId.Equal(prior.ProjectId) && data.EnvId.Equal(prior.EnvId) && data.Manifest.Equal(prior.Manifest) &&
+		data.Mode.Equal(prior.Mode) && data.WaitFor.Equal(prior.WaitFor) {
+		data.Id, data.CreatedAt, data.CompletedAt, data.Outputs = prior.Id, prior.CreatedAt, prior.CompletedAt, prior.Outputs
+		data.Status, data.StatusMessage, data.RunnerId = prior.Status, prior.StatusMessage, prior.RunnerId
 		response.Diagnostics.Append(response.State.Set(ctx, &data)...)
+		return
 	}
+	timeout, diags := data.Timeouts.Update(ctx, DefaultAsyncTimeout)
+	response.Diagnostics.Append(diags...)
+	if response.Diagnostics.HasError() {
+		return
+	}
+	d.deploy(ctx, timeout, &data, &response.State, &response.Diagnostics)
 }
 
 func (d *DeploymentResource) Delete(ctx context.Context, request resource.DeleteRequest, response *resource.DeleteResponse) {
