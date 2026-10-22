@@ -14,6 +14,12 @@ Normal CI now checks source dependencies with pinned govulncheck 1.9.0 and fails
 on reachable known vulnerabilities. A passing source scan is not a guarantee
 against unknown vulnerabilities or a substitute for deployment qualification.
 
+The contained acceptance job selects every `TestAcc...Local` case, including
+all-organization plugin enablement. A source-inventory regression test prevents
+silently omitting new local cases or selecting credential-backed tests there.
+The separate full server-backed acceptance job still requires its disposable
+organization and credentials; contained tests do not replace it.
+
 ## Compatibility and release checks
 
 Existing published versions and artifacts remain immutable. Use a new patch

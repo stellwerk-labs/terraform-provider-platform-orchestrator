@@ -108,7 +108,7 @@ jobs:
           terraform_wrapper: false
       - run: go mod download
       - name: Run contained provider acceptance tests
-        run: TF_ACC=1 go test -v -run '^TestAcc(AutomationResourcesLocal|ModuleVersionContractPlanLocal|ProgressiveRolloutsLocal|ProgressiveRolloutsAvailabilityLocal|ProgressiveRolloutImportLocal|DeploymentQueueLocal|PluginEnablementLocal)$' -count=1 ./internal/provider/
+        run: TF_ACC=1 go test -v -run '^TestAcc.*Local$' -count=1 ./internal/provider/
       - env:
           PO_ORG_ID: ${{ vars.PO_ORG_ID }}
           PO_AUTH_TOKEN: ${{ secrets.PO_AUTH_TOKEN }}
