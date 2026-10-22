@@ -41,7 +41,7 @@ def main():
         shutil.copyfile(ROOT / 'terraform-registry-manifest.json', manifest)
         home = fixture / 'gpg'
         home.mkdir(mode=0o700)
-        env = {**os.environ, 'GNUPGHOME': str(home), 'GPG_PASSPHRASE': '', 'GOTOOLCHAIN': 'go1.26.2', 'GIT_OPTIONAL_LOCKS': '0',
+        env = {**os.environ, 'GNUPGHOME': str(home), 'GPG_PASSPHRASE': '', 'GOTOOLCHAIN': 'go1.26.10', 'GIT_OPTIONAL_LOCKS': '0',
                'GOWORK': 'off', 'GOENV': 'off', 'GOFLAGS': '', 'GOEXPERIMENT': '', 'PYTHONDONTWRITEBYTECODE': '1'}
         # Keep the immutable real Git context read-only while all fixture
         # programs/configuration/output live outside the product checkout.
