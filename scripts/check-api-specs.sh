@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-readonly iam_revision=b32bbebbbbfc1781e1cdc7308e9af35d91ae0118
+readonly iam_revision=c837c2c9a4530a842083be3b6711fe4289b8cf3e
 temp_dir="$(mktemp -d)"
 readonly temp_dir
 trap 'rm -rf -- "$temp_dir"' EXIT
