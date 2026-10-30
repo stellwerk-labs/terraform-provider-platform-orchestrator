@@ -2,6 +2,7 @@
 import importlib.util
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import tempfile
@@ -161,6 +162,41 @@ class RegistryReleaseTest(unittest.TestCase):
         signer.sign_gpg(receipt, signature, self.fingerprint)
         with self.assertRaisesRegex(ValueError, 'duplicate qualified receipt key'):
             signer.verify_provider_release(self.root, self.fingerprint, {'version': '2.1.0-rc.2'})
+
+
+class GenerationRecipeTests(unittest.TestCase):
+    def exercise_generation(self, fail_once):
+        with tempfile.TemporaryDirectory(prefix="provider-generation-") as temporary:
+            root = Path(temporary)
+            tools = root / "tools"
+            tools.mkdir()
+            version = re.search(r"(?m)^go ([0-9.]+)$", (release.ROOT / "go.mod").read_text()).group(1)
+            toolchain = re.search(r"(?m)^release_go_version=(go[0-9.]+)$", (release.ROOT / "scripts/release-tools.sh").read_text()).group(1)
+            (root / "go.mod").write_text("module example.com/generation-fixture\n\ngo " + version + "\n")
+            (tools / "go.mod").write_text("module example.com/generation-tools\n\ngo " + version + "\n")
+            (root / "generator.go").write_text("//go:generate sh generate.sh\npackage fixture\n")
+            (tools / "generator.go").write_text("//go:generate touch second-phase-executed\npackage tools\n")
+            script = "touch first-phase-executed\n"
+            if fail_once:
+                script = "if [ ! -f first-attempt ]; then touch first-attempt; exit 7; fi\ntouch unexpected-root-retry\n"
+            (root / "generate.sh").write_text(script)
+            env = dict(os.environ, GOTOOLCHAIN=toolchain, GOWORK="off", GOENV="off", GOFLAGS="", GOEXPERIMENT="")
+            result = subprocess.run(["make", "-f", str(release.ROOT / "GNUmakefile"), "generate"],
+                                    cwd=root, env=env, capture_output=True, text=True, timeout=30)
+            if fail_once:
+                self.assertNotEqual(result.returncode, 0, "the first Go generation failure must reach Make")
+                self.assertFalse((root / "unexpected-root-retry").exists(), "failed generation must not run again implicitly")
+                self.assertFalse((tools / "second-phase-executed").exists())
+            else:
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertTrue((root / "first-phase-executed").exists())
+                self.assertTrue((tools / "second-phase-executed").exists())
+
+    def test_real_generation_failure_stops_before_an_implicit_retry(self):
+        self.exercise_generation(fail_once=True)
+
+    def test_real_generation_runs_both_modules_on_success(self):
+        self.exercise_generation(fail_once=False)
 
 
 if __name__ == '__main__':

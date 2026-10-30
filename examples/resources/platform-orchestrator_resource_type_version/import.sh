@@ -1,0 +1,1 @@
+terraform import platform-orchestrator_resource_type_version.storage_v2 storage/2

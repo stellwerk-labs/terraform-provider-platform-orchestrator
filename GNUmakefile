@@ -10,7 +10,8 @@ lint:
 	golangci-lint run
 
 generate:
-	go generate ./... && cd tools; go generate ./...
+	go generate ./...
+	cd tools && go generate ./...
 
 check-api-specs:
 	./scripts/check-api-specs.sh
