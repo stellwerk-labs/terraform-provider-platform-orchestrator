@@ -58,7 +58,7 @@ func (r *ResourceTypeResource) Metadata(ctx context.Context, req resource.Metada
 func (r *ResourceTypeResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		// This description is used by the documentation generator and the language server.
-		MarkdownDescription: "Manages an immutable Orchestrator Resource Type contract. Changing its contract requires a new identity. Archive blocks new Module bindings while preserving existing Modules. Referenced identities cannot be deleted; explicitly set deletion_policy=retain to relinquish Terraform ownership without deletion.",
+		MarkdownDescription: "Manages a stable Orchestrator Resource Type identity and its immutable version-1 interface. Later interface versions are published separately and selected explicitly by Module Versions; this resource continues to represent version 1. Archive blocks new Module bindings while preserving existing Modules. Referenced identities cannot be deleted; explicitly set deletion_policy=retain to relinquish Terraform ownership without deletion.",
 
 		Attributes: map[string]schema.Attribute{
 			"deletion_policy":   retainedDependencyPolicyAttribute(),

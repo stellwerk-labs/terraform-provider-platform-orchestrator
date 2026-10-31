@@ -102,7 +102,7 @@ func (r *StableModuleVersionSuccessorResource) Create(ctx context.Context, req r
 		return
 	}
 	key := uuid.NewSHA1(uuid.Nil, []byte(r.orgID+"\x00stable-successor\x00"+plan.ModuleID.ValueString()+"\x00"+plan.PrereleaseVersionID.ValueString()+"\x00"+plan.Definition.ValueString()+"\x00"+plan.Reason.ValueString())).String()
-	response, err := r.cpClient.PublishStableModuleVersionSuccessorWithResponse(ctx, r.orgID,
+	response, err := publishSuccessorForSelectedInterface(ctx, r.cpClient, r.orgID,
 		plan.ModuleID.ValueString(), plan.PrereleaseVersionID.ValueString(),
 		&cp.PublishStableModuleVersionSuccessorParams{IdempotencyKey: key}, body)
 	if err != nil {
