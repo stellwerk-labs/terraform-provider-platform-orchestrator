@@ -54,7 +54,7 @@ func (r *ModuleVersionResource) Schema(_ context.Context, _ resource.SchemaReque
 			"id":                  schema.StringAttribute{Computed: true, MarkdownDescription: "Immutable Module Version UUID."},
 			"module_id":           schema.StringAttribute{Required: true, MarkdownDescription: "Immutable Module technical slug.", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
 			"semantic_version":    schema.StringAttribute{Required: true, MarkdownDescription: "Canonical SemVer identity. New publications begin Proposed and Unverified.", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
-			"definition":          schema.StringAttribute{Required: true, CustomType: jsontypes.NormalizedType{}, MarkdownDescription: "JSON Module Version definition containing source, inputs, parameters, provider mappings, dependencies, co-provisioned resources, author-declared output_schema and release notes. Declare the SemVer identity with semantic_version, not inside this JSON payload. New publications bound to a nonempty Resource Type output_schema require the exact same output declaration. External sources require source_revision; artifact_digest is optional and immutable when supplied, and forbidden for inline source. Unknown definition fields are rejected.", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
+			"definition":          schema.StringAttribute{Required: true, CustomType: jsontypes.NormalizedType{}, MarkdownDescription: "JSON Module Version definition containing source, inputs, parameters, provider mappings, dependencies, co-provisioned resources, author-declared output_schema, optional resource_type_version and release notes. Declare the SemVer identity with semantic_version, not inside this JSON payload. New publications bound to a nonempty Resource Type output_schema require the exact same output declaration. External sources require source_revision; artifact_digest is optional and immutable when supplied, and forbidden for inline source. Unknown definition fields are rejected.", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
 			"lifecycle_status":    schema.StringAttribute{Optional: true, Computed: true, MarkdownDescription: "Desired Orchestrator lifecycle status. Valid values are proposed, default, deprecated and defective; transitions remain server validated.", Validators: []validator.String{stringvalidator.OneOf("proposed", "default", "deprecated", "defective")}},
 			"transition_reason":   schema.StringAttribute{Optional: true, MarkdownDescription: "Human-readable reason used when lifecycle_status requests a transition after publication."},
 			"resource_version":    schema.Int64Attribute{Computed: true, MarkdownDescription: "Optimistic-concurrency version of the lifecycle record."},
@@ -97,7 +97,7 @@ func (r *ModuleVersionResource) Create(ctx context.Context, req resource.CreateR
 		return
 	}
 	body.SemanticVersion = plan.SemanticVersion.ValueString()
-	response, err := r.cpClient.PublishModuleVersionWithResponse(ctx, r.orgID, plan.ModuleID.ValueString(),
+	response, err := publishVersionForSelectedInterface(ctx, r.cpClient, r.orgID, plan.ModuleID.ValueString(),
 		&cp.PublishModuleVersionParams{IdempotencyKey: moduleVersionCommandKey(r.orgID, plan.ModuleID.ValueString(), body.SemanticVersion, "publish")}, body)
 	if err != nil {
 		resp.Diagnostics.AddError(PO_CLIENT_ERR, "Unable to publish Module Version: "+err.Error())
@@ -285,8 +285,9 @@ func moduleVersionPublishBody(detail cp.CoreModuleVersionDetail) cp.ModuleVersio
 		Coprovisioned: detail.Coprovisioned, Dependencies: detail.Dependencies, Description: detail.Description,
 		ModuleInputs: detail.ModuleInputs, ModuleParams: detail.ModuleParams, ModuleSource: detail.ModuleSource,
 		ModuleSourceCode: detail.ModuleSourceCode, ProviderMapping: detail.ProviderMapping, ReleaseNotes: detail.Version.ReleaseNotes,
-		OutputSchema:    detail.OutputSchema,
-		SemanticVersion: moduleVersionCoordinate(detail.Version),
+		OutputSchema:        detail.OutputSchema,
+		ResourceTypeVersion: detail.Version.ResourceTypeVersion,
+		SemanticVersion:     moduleVersionCoordinate(detail.Version),
 		SourceRevision: func() *string {
 			if detail.Version.SourceRevision == "" {
 				return nil

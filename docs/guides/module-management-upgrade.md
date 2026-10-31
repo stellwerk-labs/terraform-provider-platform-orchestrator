@@ -25,8 +25,11 @@ Pin APIs. This provider does not invent SemVer or artifact digests for old data.
   executable definition. Every publication starts Proposed and Unverified.
 - Explicit lifecycle commands promote, deprecate, mark Defective or restore the
   permitted predecessor. Verification is not required to use a Version.
-- Resource Types are immutable contracts. Changing one requires a new identity,
-  because the old ID is never updated or replaced. Archive is reversible.
+- Resource Type interfaces are immutable contracts. Publish the next interface
+  with `platform-orchestrator_resource_type_version` under the same stable
+  Resource Type identity. Existing Module Versions keep their exact interface.
+  Omitting a selection still means version 1, never the latest interface.
+  Archive is reversible.
 
 The complete initial-publication example is in
 `examples/module-management/main.tf` in the provider repository.
@@ -171,3 +174,40 @@ These publication fixtures do not execute infrastructure or claim to verify the
 external artifact. Protected temporary state and command logs are retained for
 inspection. Only new, uniquely named catalogue records are created; no database
 reset occurs.
+
+## Edit and test before publication
+
+Use `platform-orchestrator_module_draft` for mutable authoring. Its UUID stays
+stable across saves, while `resource_version` advances. The intended SemVer is
+not reserved until publication. Published Versions, including Proposed ones,
+remain immutable.
+
+`platform-orchestrator_module_draft_test` captures one reviewed revision for a
+specific Project and Environment. Set `expected_resource_version` to the literal
+revision you reviewed. Referencing the live Draft's `resource_version` would
+capture every edit automatically and remove the deliberate review step.
+
+Pass the capture's `module_uuid` and `id` to a deployment's
+`draft_test_snapshots` map. See the complete resource example in
+`examples/resources/platform-orchestrator_module_draft_test/resource.tf`.
+
+1. Save the Draft with `status = "open"` and apply.
+2. Review its stored revision, set the capture's expected revision and apply.
+3. Edit the Draft under the same intended SemVer and apply. Existing captures
+   and deployments stay unchanged.
+4. After review, advance the capture's expected revision and apply. This creates
+   a new immutable capture and deploys its exact source.
+5. Publish separately by changing the Draft's status to `published`, leaving
+   its reviewed definition unchanged. The new Version starts Proposed; neither
+   a test nor publication makes it Default.
+
+A first Module needs a Rule scoped to both Project and Environment until it has
+its first Default. Fresh tests require authoring and deployment authority;
+queued admission rechecks both. A Pin cannot be bypassed with a test selection.
+An unsupported server returns an error rather than deploying another Version.
+
+Destroying a capture forgets its Terraform reference and retains immutable test
+history. If its original Environment disappears, refresh forgets the scoped
+reference with a warning. A recreated Environment slug cannot inherit the old
+snapshot. This differs from a missing published Module Version, which remains
+an integrity error requiring investigation.

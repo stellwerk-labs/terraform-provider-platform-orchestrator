@@ -195,3 +195,18 @@ func TestApplyModuleVersionDefinitionReconstructsImports(t *testing.T) {
 		"coprovisioned":null
 	}`, state.Definition.ValueString())
 }
+
+func TestModuleVersionImportRetainsExplicitResourceTypeContract(t *testing.T) {
+	detail := parseModuleVersionDetail(t, `{"version":{"semantic_version":"1.2.0","resource_type_version":2},"module_source":"inline","module_source_code":"output \"name\" { value = \"example\" }"}`)
+	body := moduleVersionPublishBody(*detail)
+	require.NotNil(t, body.ResourceTypeVersion)
+	require.Equal(t, int64(2), *body.ResourceTypeVersion)
+	state := ModuleVersionResourceModel{Definition: jsontypes.NewNormalizedNull()}
+	require.NoError(t, applyModuleVersionDefinition(&state, body))
+	var restored map[string]any
+	require.NoError(t, json.Unmarshal([]byte(state.Definition.ValueString()), &restored))
+	require.Equal(t, float64(2), restored["resource_type_version"])
+	require.NotContains(t, restored, "semantic_version")
+	legacy := moduleVersionPublishBody(cp.CoreModuleVersionDetail{})
+	require.Nil(t, legacy.ResourceTypeVersion, "legacy imports must not invent a missing contract claim")
+}

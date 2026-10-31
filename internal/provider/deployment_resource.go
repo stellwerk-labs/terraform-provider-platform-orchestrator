@@ -46,6 +46,7 @@ type DeploymentResource struct {
 }
 
 type DeploymentResourceModel struct {
+	DraftTests    types.Map      `tfsdk:"draft_test_snapshots"`
 	ProjectId     types.String   `tfsdk:"project_id"`
 	EnvId         types.String   `tfsdk:"env_id"`
 	Manifest      types.String   `tfsdk:"manifest"`
@@ -73,6 +74,10 @@ func (d *DeploymentResource) Schema(ctx context.Context, request resource.Schema
 		MarkdownDescription: "Deployment resource",
 
 		Attributes: map[string]schema.Attribute{
+			"draft_test_snapshots": schema.MapAttribute{
+				Optional: true, ElementType: types.StringType,
+				MarkdownDescription: "Exact captured Module tests, mapping stable Module UUIDs to immutable snapshot UUIDs scoped to this Environment. These use a separate server operation and never fall back to published Defaults on an older server. Capture with platform-orchestrator_module_draft_test first. Changing a selection creates a new deployment; it does not edit the snapshot or publish a Version.",
+			},
 			"project_id": schema.StringAttribute{
 				MarkdownDescription: "The project ID to deploy.",
 				Required:            true,
@@ -194,6 +199,9 @@ func (d *DeploymentResource) Schema(ctx context.Context, request resource.Schema
 // deployment that may wait in the queue can halt, and the Data Plane answers
 // the combination with 400.
 func (d *DeploymentResource) ValidateConfig(ctx context.Context, request resource.ValidateConfigRequest, response *resource.ValidateConfigResponse) {
+	var tests types.Map
+	response.Diagnostics.Append(request.Config.GetAttribute(ctx, path.Root("draft_test_snapshots"), &tests)...)
+	validateDeploymentDraftTests(tests, true, &response.Diagnostics)
 	var whenBusy types.String
 	var halt types.Bool
 	response.Diagnostics.Append(request.Config.GetAttribute(ctx, path.Root("when_busy"), &whenBusy)...)
@@ -223,6 +231,10 @@ func (d *DeploymentResource) Configure(ctx context.Context, request resource.Con
 }
 
 func (d *DeploymentResource) doDeployment(ctx context.Context, data *DeploymentResourceModel, diags *diag.Diagnostics) (outputsKey *age.X25519Identity) {
+	selectedTests := validateDeploymentDraftTests(data.DraftTests, false, diags)
+	if diags.HasError() {
+		return nil
+	}
 	if data.Mode.IsNull() {
 		data.Mode = types.StringValue(string(dp.DeploymentCreateBodyModeDeploy))
 	}
@@ -254,7 +266,16 @@ func (d *DeploymentResource) doDeployment(ctx context.Context, data *DeploymentR
 			body.HaltOnFailure = ref.Ref(true)
 		}
 	}
-	r, err := d.dpClient.CreateDeploymentWithResponse(ctx, d.orgId, &dp.CreateDeploymentParams{IdempotencyKey: ref.Ref(uuid.NewString())}, body)
+	params := &dp.CreateDeploymentParams{IdempotencyKey: ref.Ref(uuid.NewString())}
+	var r *dp.CreateDeploymentResponse
+	var err error
+	if len(selectedTests) > 0 {
+		testParams := dp.CreateModuleTestDeploymentParams(*params)
+		response, callErr := d.dpClient.CreateModuleTestDeploymentWithResponse(ctx, d.orgId, &testParams, dp.ModuleTestDeploymentCreateBody{Deployment: body, DraftTestSnapshots: selectedTests})
+		r, err = (*dp.CreateDeploymentResponse)(response), callErr
+	} else {
+		r, err = d.dpClient.CreateDeploymentWithResponse(ctx, d.orgId, params, body)
+	}
 	var deployment *dp.Deployment
 	switch {
 	case err != nil:
@@ -414,7 +435,7 @@ func (d *DeploymentResource) Update(ctx context.Context, request resource.Update
 	// changing only them, for example to wait longer in the queue, must not
 	// redeploy.
 	if data.ProjectId.Equal(prior.ProjectId) && data.EnvId.Equal(prior.EnvId) && data.Manifest.Equal(prior.Manifest) &&
-		data.Mode.Equal(prior.Mode) && data.WaitFor.Equal(prior.WaitFor) {
+		data.Mode.Equal(prior.Mode) && data.WaitFor.Equal(prior.WaitFor) && data.DraftTests.Equal(prior.DraftTests) {
 		data.Id, data.CreatedAt, data.CompletedAt, data.Outputs = prior.Id, prior.CreatedAt, prior.CompletedAt, prior.Outputs
 		data.Status, data.StatusMessage, data.RunnerId = prior.Status, prior.StatusMessage, prior.RunnerId
 		response.Diagnostics.Append(response.State.Set(ctx, &data)...)
@@ -429,4 +450,44 @@ func (d *DeploymentResource) Update(ctx context.Context, request resource.Update
 }
 
 func (d *DeploymentResource) Delete(ctx context.Context, request resource.DeleteRequest, response *resource.DeleteResponse) {
+}
+
+func validateDeploymentDraftTests(value types.Map, allowUnknown bool, diagnostics *diag.Diagnostics) map[string]uuid.UUID {
+	if value.IsNull() {
+		return nil
+	}
+	if value.IsUnknown() {
+		if !allowUnknown {
+			diagnostics.AddError(PO_INPUT_ERR, "Draft test selection is still unknown at deployment")
+		}
+		return nil
+	}
+	const maxSelections = 1000
+	if len(value.Elements()) > maxSelections {
+		diagnostics.AddError(PO_INPUT_ERR, "Select at most 1000 immutable Draft test snapshots")
+		return nil
+	}
+	selected := make(map[string]uuid.UUID, len(value.Elements()))
+	for key, raw := range value.Elements() {
+		module, err := uuid.Parse(key)
+		if err != nil || module == uuid.Nil || module.String() != key {
+			diagnostics.AddAttributeError(path.Root("draft_test_snapshots"), PO_INPUT_ERR, "Draft test keys must be canonical nonzero Module UUIDs")
+			continue
+		}
+		snapshotValue, ok := raw.(types.String)
+		if !ok {
+			diagnostics.AddAttributeError(path.Root("draft_test_snapshots"), PO_INPUT_ERR, "Draft test values must be snapshot UUID strings")
+			continue
+		}
+		if snapshotValue.IsUnknown() && allowUnknown {
+			continue
+		}
+		snapshot, err := uuid.Parse(snapshotValue.ValueString())
+		if err != nil || snapshot == uuid.Nil || snapshot.String() != snapshotValue.ValueString() {
+			diagnostics.AddAttributeError(path.Root("draft_test_snapshots"), PO_INPUT_ERR, "Draft test values must be canonical nonzero captured snapshot UUIDs")
+			continue
+		}
+		selected[key] = snapshot
+	}
+	return selected
 }

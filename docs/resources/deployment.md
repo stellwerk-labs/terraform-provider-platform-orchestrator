@@ -48,6 +48,7 @@ resource "platform-orchestrator_deployment" "main" {
 
 ### Optional
 
+- `draft_test_snapshots` (Map of String) Exact captured Module tests, mapping stable Module UUIDs to immutable snapshot UUIDs scoped to this Environment. These use a separate server operation and never fall back to published Defaults on an older server. Capture with platform-orchestrator_module_draft_test first. Changing a selection creates a new deployment; it does not edit the snapshot or publish a Version.
 - `halt_on_failure` (Boolean) Whether a deployment that waits in the environment's deployment queue must not start when the deployment it waited for failed. The queued request is then rejected with `previous_deployment_failed`, the apply fails and names the failed deployment, and the queue continues with the next request. Unset means `false`. A deployment that starts at once never halts, and `plan_only` deployments are never queued. Not valid with `when_busy = "reject"`. Changing only `halt_on_failure` updates state without redeploying.
 - `mode` (String) The mode of the deployment. 'deploy' (the default) or 'plan_only'. A `plan_only` deployment is never queued and does not run beside another deployment of the environment; while deployments wait in the environment's deployment queue, it plans the environment as it is now and the apply warns that the result may change.
 - `timeouts` (Block, Optional) (see [below for nested schema](#nestedblock--timeouts))
