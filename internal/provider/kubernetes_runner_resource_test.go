@@ -54,6 +54,8 @@ func TestAccKubernetesRunnerResource(t *testing.T) {
 								"service_account": knownvalue.StringExact("platform-orchestrator-runner"),
 								"pod_template":    knownvalue.Null(),
 							}),
+							"max_parallel_jobs":   knownvalue.Null(),
+							"supported_protocols": knownvalue.Null(),
 						}),
 					),
 					statecheck.ExpectKnownValue(
@@ -126,6 +128,8 @@ service_account_token = "service-account-token"
 								"service_account": knownvalue.StringExact("platform-orchestrator-runner"),
 								"pod_template":    knownvalue.Null(),
 							}),
+							"max_parallel_jobs":   knownvalue.Null(),
+							"supported_protocols": knownvalue.Null(),
 						}),
 					),
 					statecheck.ExpectKnownValue(
@@ -181,6 +185,8 @@ service_account_token = "another-service-account-token"
 								"service_account": knownvalue.StringExact("platform-orchestrator-runner"),
 								"pod_template":    knownvalue.StringExact(`{"metadata":{"labels":{"app.kubernetes.io/name":"platform-orchestrator-runner"}}}`),
 							}),
+							"max_parallel_jobs":   knownvalue.Null(),
+							"supported_protocols": knownvalue.Null(),
 						}),
 					),
 					statecheck.ExpectKnownValue(

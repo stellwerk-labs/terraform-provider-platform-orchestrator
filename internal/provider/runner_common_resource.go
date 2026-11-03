@@ -145,12 +145,27 @@ func (r *commonRunnerResource) Create(ctx context.Context, req resource.CreateRe
 		return
 	}
 
-	runnerConfigurationFromObject, err := r.ConvertRunnerConfigIntoCreateApi(ctx, data.RunnerConfiguration)
+	common, commonDiags := runnerCapacityFromConfig(ctx, req.Config)
+	resp.Diagnostics.Append(commonDiags...)
+	baseConfiguration, err := withoutRunnerCapacity(ctx, data.RunnerConfiguration)
+	if err != nil {
+		resp.Diagnostics.AddError(PO_PROVIDER_ERR, "Failed to isolate Runner configuration.")
+		return
+	}
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	runnerConfigurationFromObject, err := r.ConvertRunnerConfigIntoCreateApi(ctx, baseConfiguration)
 	if err != nil {
 		resp.Diagnostics.AddError(PO_PROVIDER_ERR, fmt.Sprintf("Failed to parse runner configuration from model: %s", err))
 		return
 	}
 
+	runnerConfigurationFromObject, err = applyRunnerCapacityCreate(ctx, runnerConfigurationFromObject, common)
+	if err != nil {
+		resp.Diagnostics.AddError(PO_PROVIDER_ERR, err.Error())
+		return
+	}
 	stateStorageConfigurationFromObject, err := createStateStorageConfigurationFromObject(ctx, data.StateStorageConfiguration)
 	if err != nil {
 		resp.Diagnostics.AddError(PO_PROVIDER_ERR, fmt.Sprintf("Failed to parse state storage configuration from model: %s", err))
@@ -179,6 +194,7 @@ func (r *commonRunnerResource) Create(ctx context.Context, req resource.CreateRe
 	} else {
 		// Save data into Terraform state
 		resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+		resp.Diagnostics.Append(writeRunnerCapacityOwnership(ctx, resp.Private, common)...)
 	}
 
 }
@@ -230,12 +246,29 @@ func (r *commonRunnerResource) Update(ctx context.Context, req resource.UpdateRe
 		return
 	}
 
-	updateRunnerConfigurationBodyFromObject, err := r.ConvertRunnerConfigIntoUpdateApi(ctx, data.RunnerConfiguration)
+	common, commonDiags := runnerCapacityFromConfig(ctx, req.Config)
+	resp.Diagnostics.Append(commonDiags...)
+	ownership, ownershipDiags := readRunnerCapacityOwnership(ctx, req.Private)
+	resp.Diagnostics.Append(ownershipDiags...)
+	baseConfiguration, err := withoutRunnerCapacity(ctx, data.RunnerConfiguration)
+	if err != nil {
+		resp.Diagnostics.AddError(PO_PROVIDER_ERR, "Failed to isolate Runner configuration.")
+		return
+	}
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	updateRunnerConfigurationBodyFromObject, err := r.ConvertRunnerConfigIntoUpdateApi(ctx, baseConfiguration)
 	if err != nil {
 		resp.Diagnostics.AddError(PO_PROVIDER_ERR, fmt.Sprintf("Failed to parse runner configuration from model: %s", err))
 		return
 	}
 
+	updateRunnerConfigurationBodyFromObject, err = applyRunnerCapacityUpdate(ctx, updateRunnerConfigurationBodyFromObject, common, ownership)
+	if err != nil {
+		resp.Diagnostics.AddError(PO_PROVIDER_ERR, err.Error())
+		return
+	}
 	updateStateStorageBodyConfigurationFromObject, err := createStateStorageConfigurationFromObject(ctx, data.StateStorageConfiguration)
 	if err != nil {
 		resp.Diagnostics.AddError(PO_PROVIDER_ERR, fmt.Sprintf("Failed to parse state storage configuration from model: %s", err))
@@ -266,6 +299,7 @@ func (r *commonRunnerResource) Update(ctx context.Context, req resource.UpdateRe
 	} else {
 		// Save data info into Terraform state
 		resp.Diagnostics.Append(resp.State.Set(ctx, data)...)
+		resp.Diagnostics.Append(writeRunnerCapacityOwnership(ctx, resp.Private, common)...)
 	}
 }
 

@@ -44,6 +44,8 @@ func TestAccKubernetesEksRunnerResource(t *testing.T) {
 								"service_account": knownvalue.StringExact("platform-orchestrator-runner"),
 								"pod_template":    knownvalue.Null(),
 							}),
+							"max_parallel_jobs":   knownvalue.Null(),
+							"supported_protocols": knownvalue.Null(),
 						}),
 					),
 					statecheck.ExpectKnownValue(
@@ -88,6 +90,8 @@ func TestAccKubernetesEksRunnerResource(t *testing.T) {
 								"service_account": knownvalue.StringExact("platform-orchestrator-runner"),
 								"pod_template":    knownvalue.Null(),
 							}),
+							"max_parallel_jobs":   knownvalue.Null(),
+							"supported_protocols": knownvalue.Null(),
 						}),
 					),
 					statecheck.ExpectKnownValue(

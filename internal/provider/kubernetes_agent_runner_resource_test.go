@@ -46,6 +46,8 @@ MCowBQYDK2VwAyEAc5dgCx4ano39JT0XgTsHnts3jej+5xl7ZAwSIrKpef0=
 								"service_account": knownvalue.StringExact("platform-orchestrator-runner"),
 								"pod_template":    knownvalue.StringExact(`{"metadata":{"labels":{"app.kubernetes.io/name":"platform-orchestrator-runner"}}}`),
 							}),
+							"max_parallel_jobs":   knownvalue.Null(),
+							"supported_protocols": knownvalue.Null(),
 						}),
 					),
 					statecheck.ExpectKnownValue(
@@ -87,6 +89,8 @@ MCowBQYDK2VwAyEAc5dgCx4ano39JT0XgTsHnts3jej+5xl7ZAwSIrKpeg0=
 								"service_account": knownvalue.StringExact("platform-orchestrator-runner"),
 								"pod_template":    knownvalue.StringExact("{}"),
 							}),
+							"max_parallel_jobs":   knownvalue.Null(),
+							"supported_protocols": knownvalue.Null(),
 						}),
 					),
 					statecheck.ExpectKnownValue(

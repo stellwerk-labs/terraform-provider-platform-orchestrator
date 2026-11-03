@@ -57,6 +57,10 @@ check_spec_sha() {
 
 # The Core and Data Plane pins and digests live in their SOURCE.md files.
 cp_revision="$(source_value internal/clients/platform-orchestrator-cp/SOURCE.md Commit)"
+if [[ "$cp_revision" == local-candidate-* && -z "${CP_SPEC_PATH:-}" ]]; then
+  echo "Unpublished Core candidate requires explicit CP_SPEC_PATH for local qualification." >&2
+  exit 1
+fi
 dp_revision="$(source_value internal/clients/platform-orchestrator-dp/SOURCE.md Commit)"
 check_spec_sha internal/clients/platform-orchestrator-cp/spec.yaml "$(source_value internal/clients/platform-orchestrator-cp/SOURCE.md 'File SHA-256')"
 check_spec_sha internal/clients/platform-orchestrator-dp/spec.yaml "$(source_value internal/clients/platform-orchestrator-dp/SOURCE.md 'File SHA-256')"
