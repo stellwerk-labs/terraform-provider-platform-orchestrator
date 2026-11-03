@@ -11,14 +11,16 @@ commit and the sole input of the official generated client.
 
 This additive contract exposes common `max_parallel_jobs` and
 `supported_protocols` on every Runner configuration. Update omission preserves
-Core settings; explicit null clears them. Existing clients may omit both fields.
+Orchestrator settings; explicit null clears them. Existing clients may omit both
+fields.
 The provider uses the repository's pinned official oapi-codegen generator without
 hand-editing the spec or generated client.
 
 The source commit is publicly reachable through the independently published
-`shared/v3.1.0` SDK tag. That SDK publication does not release the corresponding
-Core server behavior. A matching qualified Core release remains required before
-releasing provider features that use these fields.
+`shared/v3.1.0` SDK tag. The provider features require matching qualified
+Orchestrator server behavior: Control Plane 3.3.0, Data Plane 4.2.0, IAM 2.6.0
+and Runner 3.2.0. Publishing the SDK alone does not add that behavior to an older
+running server.
 
 Before a client release, verify this immutable source through the unchanged
 public-source checks without local spec overrides. Regenerate through the
