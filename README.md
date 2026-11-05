@@ -119,6 +119,9 @@ To generate or update documentation, run `make generate`.
 
 In order to run the full suite of Acceptance tests, run `make testacc`.
 
+The disconnected-agent case also needs the owned receiver prerequisites in
+[Testing disconnected-agent deployments](docs/testing-agent-deployments.md).
+
 *Note:* Acceptance tests create real resources, and often cost money to run.
 
 They run against the organization in `PO_ORG_ID` with an organization Admin
