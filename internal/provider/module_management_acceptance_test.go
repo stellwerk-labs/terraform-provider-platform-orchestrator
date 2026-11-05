@@ -150,6 +150,7 @@ resource "platform-orchestrator_module_version" "release" {
   semantic_version = "1.0.0"
   definition = jsonencode({
     output_schema = jsondecode(platform-orchestrator_resource_type.release.output_schema)
+    resource_type_version = 1
     module_source = "inline"
     module_source_code = "output \"value\" { value = \"ready\" }"
     module_inputs = {}
@@ -177,6 +178,10 @@ func moduleVersionImportDefinitionHasNoSemanticVersion(resourceVersion *string) 
 			}
 			if _, ok := fields["semantic_version"]; ok {
 				return fmt.Errorf("imported Module Version definition duplicated semantic_version identity")
+			}
+			var contractVersion int64
+			if err := json.Unmarshal(fields["resource_type_version"], &contractVersion); err != nil || contractVersion != 1 {
+				return fmt.Errorf("imported Module Version lost its fresh Resource Type contract version 1")
 			}
 			*resourceVersion = state.Attributes["resource_version"]
 			if *resourceVersion == "" {
