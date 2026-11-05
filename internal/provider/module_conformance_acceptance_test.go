@@ -43,6 +43,7 @@ resource "platform-orchestrator_module_version" "contract" {
     module_source = "git::https://github.com/stellwerk-labs/first-deployment//modules/postgres?ref=4b17d97474a6cdb51d4da1b42dd041f6d4e03aee"
     source_revision = "4b17d97474a6cdb51d4da1b42dd041f6d4e03aee"
     output_schema = jsondecode(platform-orchestrator_resource_type.contract.output_schema)
+    resource_type_version = 1
     module_inputs = {name = "contract-release"}
     module_params = {}
     provider_mapping = {}
@@ -100,8 +101,8 @@ data "platform-orchestrator_module_version" "contract" {
 					if response.StatusCode() != http.StatusOK || response.JSON200 == nil {
 						return fmt.Errorf("get published declaration: HTTP %d", response.StatusCode())
 					}
-					if response.JSON200.Version.ArtifactDigest != "" || response.JSON200.Version.VerificationStatus != "unverified" || response.JSON200.OutputSchema == nil {
-						return fmt.Errorf("publication lost its declared output or fabricated artifact verification")
+					if response.JSON200.Version.ArtifactDigest != "" || response.JSON200.Version.VerificationStatus != "unverified" || response.JSON200.OutputSchema == nil || response.JSON200.Version.ResourceTypeVersion == nil || *response.JSON200.Version.ResourceTypeVersion != 1 {
+						return fmt.Errorf("publication lost its declared output or Resource Type contract, or fabricated artifact verification")
 					}
 					return nil
 				},
