@@ -112,6 +112,14 @@ terraform import platform-orchestrator_module_version.release service/1.0.0
 The second component may also be the actual Version UUID. Match the complete
 published definition in configuration and review the resulting no-op plan.
 
+Import reconstructs the immutable definition from the authoritative API, including
+the Resource Type contract version bound to that publication. Keep that resolved
+`resource_type_version` in your configuration after import, even if it was omitted
+when publishing. Omitting it remains supported for publication, and normal refresh
+preserves the configured omission. Import cannot recover that original omission;
+leaving it out of an imported definition plans replacement. Use the actual bound
+version, not necessarily version 1 or the latest Resource Type interface.
+
 ## Teardown retains history
 
 Destroying a Version removes its Terraform state reference only. Stellwerk

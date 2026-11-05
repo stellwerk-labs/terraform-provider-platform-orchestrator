@@ -22,7 +22,7 @@ import (
 )
 
 func NewKubernetesAgentRunnerResource() resource.Resource {
-	return &commonRunnerResource{
+	return withRunnerCapacityResource(&commonRunnerResource{
 		SubType: "kubernetes_agent_runner",
 		SchemaDef: schema.Schema{
 			// This description is used by the documentation generator and the language server.
@@ -85,7 +85,7 @@ func NewKubernetesAgentRunnerResource() resource.Resource {
 		ReadApiResponseIntoModel:         toKubernetesAgentRunnerResourceModel,
 		ConvertRunnerConfigIntoCreateApi: createKubernetesAgentRunnerConfigurationFromObject,
 		ConvertRunnerConfigIntoUpdateApi: updateK8sAgentRunnerConfigurationFromObject,
-	}
+	})
 }
 
 // KubernetesAgentRunnerConfiguration describes the runner configuration structure following SecretRef pattern.

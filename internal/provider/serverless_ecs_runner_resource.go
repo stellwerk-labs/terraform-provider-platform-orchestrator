@@ -209,13 +209,13 @@ var ecsRunnerResourceSchema = schema.Schema{
 }
 
 func NewServerlessEcsRunnerResource() resource.Resource {
-	return &commonRunnerResource{
+	return withRunnerCapacityResource(&commonRunnerResource{
 		SubType:                          "serverless_ecs_runner",
 		SchemaDef:                        ecsRunnerResourceSchema,
 		ReadApiResponseIntoModel:         convertEcsRunnerApiIntoModel,
 		ConvertRunnerConfigIntoCreateApi: convertEcsRunnerModelIntoRunnerConfigCreate,
 		ConvertRunnerConfigIntoUpdateApi: convertEcsRunnerModelIntoRunnerConfigUpdate,
-	}
+	})
 }
 
 type ecsRunnerStateStorageModel struct {

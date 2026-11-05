@@ -11,7 +11,7 @@ import (
 )
 
 func NewKubernetesEksRunnerDataSource() datasource.DataSource {
-	return &commonRunnerDataSource{
+	return withRunnerCapacityDataSource(&commonRunnerDataSource{
 		SubType: "kubernetes_eks_runner",
 		SchemaDef: schema.Schema{
 			// This description is used by the documentation generator and the language server.
@@ -93,5 +93,5 @@ func NewKubernetesEksRunnerDataSource() datasource.DataSource {
 			},
 		},
 		ReadApiResponseIntoModel: toKubernetesEksRunnerResourceModel,
-	}
+	})
 }

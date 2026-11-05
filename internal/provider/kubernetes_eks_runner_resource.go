@@ -21,7 +21,7 @@ import (
 )
 
 func NewKubernetesEksRunnerResource() resource.Resource {
-	return &commonRunnerResource{
+	return withRunnerCapacityResource(&commonRunnerResource{
 		SubType: "kubernetes_eks_runner",
 		SchemaDef: schema.Schema{
 			// This description is used by the documentation generator and the language server.
@@ -135,7 +135,7 @@ func NewKubernetesEksRunnerResource() resource.Resource {
 		ReadApiResponseIntoModel:         toKubernetesEksRunnerResourceModel,
 		ConvertRunnerConfigIntoCreateApi: createKubernetesEksRunnerConfigurationFromObject,
 		ConvertRunnerConfigIntoUpdateApi: updateKubernetesEksRunnerConfigurationFromObject,
-	}
+	})
 }
 
 // KubernetesEksRunnerConfiguration describes the runner configuration structure following SecretRef pattern.

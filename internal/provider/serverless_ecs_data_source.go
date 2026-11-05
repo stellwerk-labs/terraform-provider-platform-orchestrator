@@ -37,7 +37,7 @@ var ecsRunnerStateStorageDataSourceSchema = schema.SingleNestedAttribute{
 }
 
 func NewServerlessEcsRunnerDataSource() datasource.DataSource {
-	return &commonRunnerDataSource{
+	return withRunnerCapacityDataSource(&commonRunnerDataSource{
 		SubType: "serverless_ecs_runner",
 		SchemaDef: schema.Schema{
 			// This description is used by the documentation generator and the language server.
@@ -136,5 +136,5 @@ func NewServerlessEcsRunnerDataSource() datasource.DataSource {
 			},
 		},
 		ReadApiResponseIntoModel: convertEcsRunnerApiIntoModel,
-	}
+	})
 }

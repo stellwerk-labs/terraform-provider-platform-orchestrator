@@ -33,6 +33,11 @@ Required:
 - `auth` (Attributes) Configuration to obtain temporary AWS security credentials by assuming an IAM role. (see [below for nested schema](#nestedatt--runner_configuration--auth))
 - `job` (Attributes) The job configuration for the AWS ECS Runner. (see [below for nested schema](#nestedatt--runner_configuration--job))
 
+Read-Only:
+
+- `max_parallel_jobs` (Number) Maximum concurrent jobs across all Environments using this Runner. Must be positive. Omission preserves Core configuration (legacy unlimited when unset). Removing a value previously applied by Terraform clears the limit. Same-value no-op adoption does not establish management; apply a real configured update to claim an imported/operator value. Reducing the limit drains existing jobs before new admission.
+- `supported_protocols` (Set of String) Protocols explicitly supported by the configured Runner image, at most 16 unique names of 1 to 128 characters. Omission preserves Core configuration. Removing a value previously applied by Terraform clears the opt-in; an empty set declares no protocols. Observation requires environment-observation/v1.
+
 <a id="nestedatt--runner_configuration--auth"></a>
 ### Nested Schema for `runner_configuration.auth`
 
