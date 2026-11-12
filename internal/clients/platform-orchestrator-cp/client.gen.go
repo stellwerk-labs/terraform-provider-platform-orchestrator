@@ -1653,6 +1653,9 @@ type Environment struct {
 	// Example: 2023-01-01T00:00:00Z
 	CreatedAt time.Time `json:"created_at"`
 
+	// DeletionPolicy Canonical accepted deletion options for this lifecycle. Omitted for legacy unknown policy, which requires an explicit DELETE before new Destroy admission. True flags cannot be undone by retries.
+	DeletionPolicy *EnvironmentDeletionPolicy `json:"deletion_policy,omitempty"`
+
 	// DisplayName Environment human readable name
 	//
 	// Example: My Sample Environment
@@ -1735,6 +1738,15 @@ type EnvironmentDeletionImpact struct {
 	EnvironmentUuid  openapi_types.UUID            `json:"environment_uuid"`
 	Pins             []EnvironmentModuleVersionPin `json:"pins"`
 	RelatedResources []ModuleExtensionContribution `json:"related_resources"`
+}
+
+// EnvironmentDeletionPolicy defines model for EnvironmentDeletionPolicy.
+type EnvironmentDeletionPolicy struct {
+	// DeleteRules Remove associated rules when this lifecycle is finally deleted.
+	DeleteRules bool `json:"delete_rules"`
+
+	// Force Skip new ordinary Destroy work. Previously authorized work may still finish.
+	Force bool `json:"force"`
 }
 
 // EnvironmentInternalUpdateBody defines model for EnvironmentInternalUpdateBody.
@@ -3010,6 +3022,10 @@ type ModuleProvider struct {
 	// Example: 2023-01-01T00:00:00Z
 	CreatedAt time.Time `json:"created_at"`
 
+	// DeletionRequestedAt When deletion was requested. Present while waiting for managed state
+	// and in-flight operations to release this Provider. Omitted while active.
+	DeletionRequestedAt *time.Time `json:"deletion_requested_at,omitempty"`
+
 	// Description An optional text description for this module provider
 	//
 	// Example: Provider using default runner environment variables for AWS
@@ -3089,6 +3105,10 @@ type ModuleProviderSummary struct {
 	//
 	// Example: 2023-01-01T00:00:00Z
 	CreatedAt time.Time `json:"created_at"`
+
+	// DeletionRequestedAt When deletion was requested. Present while waiting for managed state
+	// and in-flight operations to release this Provider. Omitted while active.
+	DeletionRequestedAt *time.Time `json:"deletion_requested_at,omitempty"`
 
 	// Description An optional text description for this module provider
 	//
@@ -5233,8 +5253,11 @@ type ReleaseModuleOperationReservationParams struct {
 
 // InternalForceDeleteEnvironmentParams defines parameters for InternalForceDeleteEnvironment.
 type InternalForceDeleteEnvironmentParams struct {
-	// DeleteRules Whether to delete all rules associated with the environment
+	// DeleteRules Legacy fallback when canonical deletion policy is unknown. Persisted deletion policy takes precedence.
 	DeleteRules *bool `form:"deleteRules,omitempty" json:"deleteRules,omitempty"`
+
+	// ExpectedEnvUuid When supplied, final deletion requires this exact Environment lifecycle UUID and known canonical deletion policy. A mismatch returns 409 before any deletion. Legacy callers omitting it remain unbound; unknown policy is accepted only by the active-Environment internal escape hatch.
+	ExpectedEnvUuid *openapi_types.UUID `form:"expectedEnvUuid,omitempty" json:"expectedEnvUuid,omitempty"`
 }
 
 // GenerateInternalModuleCatalogueParams defines parameters for GenerateInternalModuleCatalogue.
@@ -6988,7 +7011,11 @@ type ClientInterface interface {
 	// Corresponds with POST /orgs/{orgId}/module-providers (the `CreateModuleProvider` operationId).
 	CreateModuleProvider(ctx context.Context, orgId OrgIdPathParam, body CreateModuleProviderJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// DeleteModuleProvider Delete an existing module provider in the org if it is unused
+	// DeleteModuleProvider Request deletion of a module provider
+	//
+	// Marks the Provider for deletion. Configuration remains available for
+	// cleanup until state and admission checks prove it is unused.
+	// Repeating this request preserves the original deletion timestamp.
 	//
 	// Corresponds with DELETE /orgs/{orgId}/module-providers/{providerType}/{providerId} (the `DeleteModuleProvider` operationId).
 	DeleteModuleProvider(ctx context.Context, orgId OrgIdPathParam, providerType ProviderTypePathParam, providerId ProviderIdPathParam, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -7688,12 +7715,13 @@ type ClientInterface interface {
 	// Corresponds with GET /orgs/{orgId}/projects/{projectId}/envs/{envId}/deletion-impact (the `GetEnvironmentDeletionImpact` operationId).
 	GetEnvironmentDeletionImpact(ctx context.Context, orgId OrgIdPathParam, projectId ProjectIdPathParam, envId EnvIdPathParam, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// AcknowledgeDeploymentOutcomeWithBody Acknowledge the unknown Runner outcome of a failed plugin-dispatched Deployment.
+	// AcknowledgeDeploymentOutcomeWithBody Acknowledge an eligible retained Deployment with unknown Runner outcome.
 	//
 	// Records, exactly once and attributed to the acting user, that an operator has confirmed the Runner attempt
-	// of this failed plugin-dispatched Deployment of the Environment can no longer change it. The Data Plane
-	// accepts only the current Environment head without Runner stop evidence after its Runner dispatch window
-	// closed; the acknowledgement then lets the next Deployment of the Environment proceed. It does not change
+	// of this eligible Deployment of the Environment can no longer change it. Eligibility includes retained
+	// plugin-dispatched work and ordinary work retaining Runner capacity, including older non-head ownership,
+	// only after the bounded Runner dispatch window has closed and without Runner stop evidence. The
+	// acknowledgement releases that retained ownership and wakes Environment deletion. It does not change
 	// the Deployment's status or history. Requires the `deployment.outcome.acknowledge` permission on the
 	// Environment, with the organization as fallback. Organization tokens and the system user are rejected
 	// because the actor is the audit record. Repeating the identical request returns the stored acknowledgement
@@ -7704,12 +7732,13 @@ type ClientInterface interface {
 	// Corresponds with POST /orgs/{orgId}/projects/{projectId}/envs/{envId}/deployments/{deploymentId}/actions/acknowledge-outcome (the `AcknowledgeDeploymentOutcome` operationId).
 	AcknowledgeDeploymentOutcomeWithBody(ctx context.Context, orgId OrgIdPathParam, projectId ProjectIdPathParam, envId EnvIdPathParam, deploymentId openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// AcknowledgeDeploymentOutcome Acknowledge the unknown Runner outcome of a failed plugin-dispatched Deployment.
+	// AcknowledgeDeploymentOutcome Acknowledge an eligible retained Deployment with unknown Runner outcome.
 	//
 	// Records, exactly once and attributed to the acting user, that an operator has confirmed the Runner attempt
-	// of this failed plugin-dispatched Deployment of the Environment can no longer change it. The Data Plane
-	// accepts only the current Environment head without Runner stop evidence after its Runner dispatch window
-	// closed; the acknowledgement then lets the next Deployment of the Environment proceed. It does not change
+	// of this eligible Deployment of the Environment can no longer change it. Eligibility includes retained
+	// plugin-dispatched work and ordinary work retaining Runner capacity, including older non-head ownership,
+	// only after the bounded Runner dispatch window has closed and without Runner stop evidence. The
+	// acknowledgement releases that retained ownership and wakes Environment deletion. It does not change
 	// the Deployment's status or history. Requires the `deployment.outcome.acknowledge` permission on the
 	// Environment, with the organization as fallback. Organization tokens and the system user are rejected
 	// because the actor is the audit record. Repeating the identical request returns the stored acknowledgement
@@ -9029,7 +9058,11 @@ func (c *Client) CreateModuleProvider(ctx context.Context, orgId OrgIdPathParam,
 	return c.Client.Do(req)
 }
 
-// DeleteModuleProvider Delete an existing module provider in the org if it is unused
+// DeleteModuleProvider Request deletion of a module provider
+//
+// Marks the Provider for deletion. Configuration remains available for
+// cleanup until state and admission checks prove it is unused.
+// Repeating this request preserves the original deletion timestamp.
 //
 // Corresponds with DELETE /orgs/{orgId}/module-providers/{providerType}/{providerId} (the `DeleteModuleProvider` operationId).
 func (c *Client) DeleteModuleProvider(ctx context.Context, orgId OrgIdPathParam, providerType ProviderTypePathParam, providerId ProviderIdPathParam, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -10849,12 +10882,13 @@ func (c *Client) GetEnvironmentDeletionImpact(ctx context.Context, orgId OrgIdPa
 	return c.Client.Do(req)
 }
 
-// AcknowledgeDeploymentOutcomeWithBody Acknowledge the unknown Runner outcome of a failed plugin-dispatched Deployment.
+// AcknowledgeDeploymentOutcomeWithBody Acknowledge an eligible retained Deployment with unknown Runner outcome.
 //
 // Records, exactly once and attributed to the acting user, that an operator has confirmed the Runner attempt
-// of this failed plugin-dispatched Deployment of the Environment can no longer change it. The Data Plane
-// accepts only the current Environment head without Runner stop evidence after its Runner dispatch window
-// closed; the acknowledgement then lets the next Deployment of the Environment proceed. It does not change
+// of this eligible Deployment of the Environment can no longer change it. Eligibility includes retained
+// plugin-dispatched work and ordinary work retaining Runner capacity, including older non-head ownership,
+// only after the bounded Runner dispatch window has closed and without Runner stop evidence. The
+// acknowledgement releases that retained ownership and wakes Environment deletion. It does not change
 // the Deployment's status or history. Requires the `deployment.outcome.acknowledge` permission on the
 // Environment, with the organization as fallback. Organization tokens and the system user are rejected
 // because the actor is the audit record. Repeating the identical request returns the stored acknowledgement
@@ -10875,12 +10909,13 @@ func (c *Client) AcknowledgeDeploymentOutcomeWithBody(ctx context.Context, orgId
 	return c.Client.Do(req)
 }
 
-// AcknowledgeDeploymentOutcome Acknowledge the unknown Runner outcome of a failed plugin-dispatched Deployment.
+// AcknowledgeDeploymentOutcome Acknowledge an eligible retained Deployment with unknown Runner outcome.
 //
 // Records, exactly once and attributed to the acting user, that an operator has confirmed the Runner attempt
-// of this failed plugin-dispatched Deployment of the Environment can no longer change it. The Data Plane
-// accepts only the current Environment head without Runner stop evidence after its Runner dispatch window
-// closed; the acknowledgement then lets the next Deployment of the Environment proceed. It does not change
+// of this eligible Deployment of the Environment can no longer change it. Eligibility includes retained
+// plugin-dispatched work and ordinary work retaining Runner capacity, including older non-head ownership,
+// only after the bounded Runner dispatch window has closed and without Runner stop evidence. The
+// acknowledgement releases that retained ownership and wakes Environment deletion. It does not change
 // the Deployment's status or history. Requires the `deployment.outcome.acknowledge` permission on the
 // Environment, with the organization as fallback. Organization tokens and the system user are rejected
 // because the actor is the audit record. Repeating the identical request returns the stored acknowledgement
@@ -12652,6 +12687,18 @@ func NewInternalForceDeleteEnvironmentRequest(server string, orgId OrgIdPathPara
 		if params.DeleteRules != nil {
 
 			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "deleteRules", *params.DeleteRules, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "boolean", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.ExpectedEnvUuid != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "expectedEnvUuid", *params.ExpectedEnvUuid, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: "uuid"}); err != nil {
 				return nil, err
 			} else {
 				for _, qp := range strings.Split(queryFrag, "&") {
@@ -21097,7 +21144,11 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with POST /orgs/{orgId}/module-providers (the `CreateModuleProvider` operationId).
 	CreateModuleProviderWithResponse(ctx context.Context, orgId OrgIdPathParam, body CreateModuleProviderJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateModuleProviderResponse, error)
 
-	// DeleteModuleProviderWithResponse Delete an existing module provider in the org if it is unused
+	// DeleteModuleProviderWithResponse Request deletion of a module provider
+	//
+	// Marks the Provider for deletion. Configuration remains available for
+	// cleanup until state and admission checks prove it is unused.
+	// Repeating this request preserves the original deletion timestamp.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -21891,12 +21942,13 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /orgs/{orgId}/projects/{projectId}/envs/{envId}/deletion-impact (the `GetEnvironmentDeletionImpact` operationId).
 	GetEnvironmentDeletionImpactWithResponse(ctx context.Context, orgId OrgIdPathParam, projectId ProjectIdPathParam, envId EnvIdPathParam, reqEditors ...RequestEditorFn) (*GetEnvironmentDeletionImpactResponse, error)
 
-	// AcknowledgeDeploymentOutcomeWithBodyWithResponse Acknowledge the unknown Runner outcome of a failed plugin-dispatched Deployment.
+	// AcknowledgeDeploymentOutcomeWithBodyWithResponse Acknowledge an eligible retained Deployment with unknown Runner outcome.
 	//
 	// Records, exactly once and attributed to the acting user, that an operator has confirmed the Runner attempt
-	// of this failed plugin-dispatched Deployment of the Environment can no longer change it. The Data Plane
-	// accepts only the current Environment head without Runner stop evidence after its Runner dispatch window
-	// closed; the acknowledgement then lets the next Deployment of the Environment proceed. It does not change
+	// of this eligible Deployment of the Environment can no longer change it. Eligibility includes retained
+	// plugin-dispatched work and ordinary work retaining Runner capacity, including older non-head ownership,
+	// only after the bounded Runner dispatch window has closed and without Runner stop evidence. The
+	// acknowledgement releases that retained ownership and wakes Environment deletion. It does not change
 	// the Deployment's status or history. Requires the `deployment.outcome.acknowledge` permission on the
 	// Environment, with the organization as fallback. Organization tokens and the system user are rejected
 	// because the actor is the audit record. Repeating the identical request returns the stored acknowledgement
@@ -21907,12 +21959,13 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with POST /orgs/{orgId}/projects/{projectId}/envs/{envId}/deployments/{deploymentId}/actions/acknowledge-outcome (the `AcknowledgeDeploymentOutcome` operationId).
 	AcknowledgeDeploymentOutcomeWithBodyWithResponse(ctx context.Context, orgId OrgIdPathParam, projectId ProjectIdPathParam, envId EnvIdPathParam, deploymentId openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AcknowledgeDeploymentOutcomeResponse, error)
 
-	// AcknowledgeDeploymentOutcomeWithResponse Acknowledge the unknown Runner outcome of a failed plugin-dispatched Deployment.
+	// AcknowledgeDeploymentOutcomeWithResponse Acknowledge an eligible retained Deployment with unknown Runner outcome.
 	//
 	// Records, exactly once and attributed to the acting user, that an operator has confirmed the Runner attempt
-	// of this failed plugin-dispatched Deployment of the Environment can no longer change it. The Data Plane
-	// accepts only the current Environment head without Runner stop evidence after its Runner dispatch window
-	// closed; the acknowledgement then lets the next Deployment of the Environment proceed. It does not change
+	// of this eligible Deployment of the Environment can no longer change it. Eligibility includes retained
+	// plugin-dispatched work and ordinary work retaining Runner capacity, including older non-head ownership,
+	// only after the bounded Runner dispatch window has closed and without Runner stop evidence. The
+	// acknowledgement releases that retained ownership and wakes Environment deletion. It does not change
 	// the Deployment's status or history. Requires the `deployment.outcome.acknowledge` permission on the
 	// Environment, with the organization as fallback. Organization tokens and the system user are rejected
 	// because the actor is the audit record. Repeating the identical request returns the stored acknowledgement
@@ -31894,7 +31947,11 @@ func (c *ClientWithResponses) CreateModuleProviderWithResponse(ctx context.Conte
 	return ParseCreateModuleProviderResponse(rsp)
 }
 
-// DeleteModuleProviderWithResponse Delete an existing module provider in the org if it is unused
+// DeleteModuleProviderWithResponse Request deletion of a module provider
+//
+// Marks the Provider for deletion. Configuration remains available for
+// cleanup until state and admission checks prove it is unused.
+// Repeating this request preserves the original deletion timestamp.
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -33360,12 +33417,13 @@ func (c *ClientWithResponses) GetEnvironmentDeletionImpactWithResponse(ctx conte
 	return ParseGetEnvironmentDeletionImpactResponse(rsp)
 }
 
-// AcknowledgeDeploymentOutcomeWithBodyWithResponse Acknowledge the unknown Runner outcome of a failed plugin-dispatched Deployment.
+// AcknowledgeDeploymentOutcomeWithBodyWithResponse Acknowledge an eligible retained Deployment with unknown Runner outcome.
 //
 // Records, exactly once and attributed to the acting user, that an operator has confirmed the Runner attempt
-// of this failed plugin-dispatched Deployment of the Environment can no longer change it. The Data Plane
-// accepts only the current Environment head without Runner stop evidence after its Runner dispatch window
-// closed; the acknowledgement then lets the next Deployment of the Environment proceed. It does not change
+// of this eligible Deployment of the Environment can no longer change it. Eligibility includes retained
+// plugin-dispatched work and ordinary work retaining Runner capacity, including older non-head ownership,
+// only after the bounded Runner dispatch window has closed and without Runner stop evidence. The
+// acknowledgement releases that retained ownership and wakes Environment deletion. It does not change
 // the Deployment's status or history. Requires the `deployment.outcome.acknowledge` permission on the
 // Environment, with the organization as fallback. Organization tokens and the system user are rejected
 // because the actor is the audit record. Repeating the identical request returns the stored acknowledgement
@@ -33382,12 +33440,13 @@ func (c *ClientWithResponses) AcknowledgeDeploymentOutcomeWithBodyWithResponse(c
 	return ParseAcknowledgeDeploymentOutcomeResponse(rsp)
 }
 
-// AcknowledgeDeploymentOutcomeWithResponse Acknowledge the unknown Runner outcome of a failed plugin-dispatched Deployment.
+// AcknowledgeDeploymentOutcomeWithResponse Acknowledge an eligible retained Deployment with unknown Runner outcome.
 //
 // Records, exactly once and attributed to the acting user, that an operator has confirmed the Runner attempt
-// of this failed plugin-dispatched Deployment of the Environment can no longer change it. The Data Plane
-// accepts only the current Environment head without Runner stop evidence after its Runner dispatch window
-// closed; the acknowledgement then lets the next Deployment of the Environment proceed. It does not change
+// of this eligible Deployment of the Environment can no longer change it. Eligibility includes retained
+// plugin-dispatched work and ordinary work retaining Runner capacity, including older non-head ownership,
+// only after the bounded Runner dispatch window has closed and without Runner stop evidence. The
+// acknowledgement releases that retained ownership and wakes Environment deletion. It does not change
 // the Deployment's status or history. Requires the `deployment.outcome.acknowledge` permission on the
 // Environment, with the organization as fallback. Organization tokens and the system user are rejected
 // because the actor is the audit record. Repeating the identical request returns the stored acknowledgement
@@ -35715,6 +35774,9 @@ func ParseDeleteModuleProviderResponse(rsp *http.Response) (*DeleteModuleProvide
 	}
 
 	switch {
+	case rsp.StatusCode == 202:
+		break // No content-type
+
 	case rsp.StatusCode == 204:
 		break // No content-type
 
@@ -35731,6 +35793,9 @@ func ParseDeleteModuleProviderResponse(rsp *http.Response) (*DeleteModuleProvide
 			return nil, err
 		}
 		response.JSON409 = &dest
+
+	case rsp.StatusCode == 503:
+		break // No content-type
 
 	}
 

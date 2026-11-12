@@ -7,6 +7,9 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
+
+	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 
 	cp "github.com/stellwerk-labs/terraform-provider-platform-orchestrator/internal/clients/platform-orchestrator-cp"
 	"github.com/stellwerk-labs/terraform-provider-platform-orchestrator/internal/ref"
@@ -38,13 +41,15 @@ type ProviderResource struct {
 
 // ProviderResourceModel describes the resource data model.
 type ProviderResourceModel struct {
-	Id                types.String         `tfsdk:"id"`
-	Description       types.String         `tfsdk:"description"`
-	ProviderType      types.String         `tfsdk:"provider_type"`
-	Source            types.String         `tfsdk:"source"`
-	VersionConstraint types.String         `tfsdk:"version_constraint"`
-	Configuration     jsontypes.Normalized `tfsdk:"configuration"`
-	DeletionPolicy    types.String         `tfsdk:"deletion_policy"`
+	Id                  types.String         `tfsdk:"id"`
+	Description         types.String         `tfsdk:"description"`
+	ProviderType        types.String         `tfsdk:"provider_type"`
+	Source              types.String         `tfsdk:"source"`
+	VersionConstraint   types.String         `tfsdk:"version_constraint"`
+	Configuration       jsontypes.Normalized `tfsdk:"configuration"`
+	DeletionPolicy      types.String         `tfsdk:"deletion_policy"`
+	DeletionRequestedAt types.String         `tfsdk:"deletion_requested_at"`
+	Timeouts            timeouts.Value       `tfsdk:"timeouts"`
 }
 
 func (r *ProviderResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -56,8 +61,11 @@ func (r *ProviderResource) Schema(ctx context.Context, req resource.SchemaReques
 		// This description is used by the documentation generator and the language server.
 		MarkdownDescription: "Provider resource",
 
+		Blocks: map[string]schema.Block{
+			"timeouts": timeouts.Block(ctx, timeouts.Opts{Delete: true}),
+		},
 		Attributes: map[string]schema.Attribute{
-			"deletion_policy": retainedDependencyPolicyAttribute(),
+			"deletion_policy": providerDeletionPolicyAttribute(),
 			"id": schema.StringAttribute{
 				MarkdownDescription: "The unique identifier for the Provider.",
 				Required:            true,
@@ -114,6 +122,10 @@ func (r *ProviderResource) Schema(ctx context.Context, req resource.SchemaReques
 					stringvalidator.LengthAtMost(100),
 				},
 			},
+			"deletion_requested_at": schema.StringAttribute{
+				MarkdownDescription: "When deletion was requested. Configuration remains available until managed state and in-flight operations release the Provider.",
+				Computed:            true,
+			},
 			"configuration": schema.StringAttribute{
 				MarkdownDescription: "JSON encoded configuration of the provider.",
 				Optional:            true,
@@ -122,6 +134,12 @@ func (r *ProviderResource) Schema(ctx context.Context, req resource.SchemaReques
 			},
 		},
 	}
+}
+
+func providerDeletionPolicyAttribute() schema.StringAttribute {
+	attribute := retainedDependencyPolicyAttribute()
+	attribute.MarkdownDescription = "Destroy behavior: delete (default) requests Provider retirement and waits for confirmed removal. Managed bindings or in-flight operations keep its configuration available; a delete timeout preserves Terraform ownership for retry. Retain removes only Terraform ownership without requesting retirement. Import a retained Provider before managing it again."
+	return attribute
 }
 
 func (r *ProviderResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
@@ -182,6 +200,7 @@ func (r *ProviderResource) Create(ctx context.Context, req resource.CreateReques
 	// Save data into Terraform state
 	result := toProviderResourceModel(*httpResp.JSON201)
 	result.DeletionPolicy = data.DeletionPolicy
+	result.Timeouts = data.Timeouts
 	resp.Diagnostics.Append(resp.State.Set(ctx, &result)...)
 }
 
@@ -214,6 +233,7 @@ func (r *ProviderResource) Read(ctx context.Context, req resource.ReadRequest, r
 
 	result := toProviderResourceModel(*httpResp.JSON200)
 	result.DeletionPolicy = data.DeletionPolicy
+	result.Timeouts = data.Timeouts
 	if result.DeletionPolicy.IsNull() {
 		result.DeletionPolicy = types.StringValue("delete")
 	}
@@ -230,6 +250,7 @@ func (r *ProviderResource) Update(ctx context.Context, req resource.UpdateReques
 		return
 	}
 	if data.Description.Equal(state.Description) && data.Source.Equal(state.Source) && data.VersionConstraint.Equal(state.VersionConstraint) && data.Configuration.Equal(state.Configuration) {
+		data.DeletionRequestedAt = state.DeletionRequestedAt
 		resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 		return
 	}
@@ -263,6 +284,7 @@ func (r *ProviderResource) Update(ctx context.Context, req resource.UpdateReques
 
 	result := toProviderResourceModel(*httpResp.JSON200)
 	result.DeletionPolicy = data.DeletionPolicy
+	result.Timeouts = data.Timeouts
 	resp.Diagnostics.Append(resp.State.Set(ctx, &result)...)
 }
 
@@ -288,6 +310,18 @@ func (r *ProviderResource) Delete(ctx context.Context, req resource.DeleteReques
 	}
 
 	switch httpResp.StatusCode() {
+	case http.StatusAccepted:
+		timeout, diags := data.Timeouts.Delete(ctx, DefaultAsyncTimeout)
+		resp.Diagnostics.Append(diags...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+		waitCtx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
+		if err := r.waitForProviderRemoval(waitCtx, data.ProviderType.ValueString(), data.Id.ValueString()); err != nil {
+			resp.Diagnostics.AddError("Provider deletion is pending", "The Provider remains in Terraform state and its configuration is retained for cleanup. Remove its managed bindings, then retry: "+err.Error())
+			return
+		}
 	case 204:
 		// Successfully deleted, no further action needed.
 	case 404:
@@ -299,6 +333,30 @@ func (r *ProviderResource) Delete(ctx context.Context, req resource.DeleteReques
 	}
 
 	resp.State.RemoveResource(ctx)
+}
+
+// A 202 response accepts retirement, not physical removal. Keep Terraform
+// ownership until the API confirms absence, including across timeouts.
+func (r *ProviderResource) waitForProviderRemoval(ctx context.Context, providerType, id string) error {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	for {
+		response, err := r.cpClient.GetModuleProviderWithResponse(ctx, r.orgId, providerType, id)
+		if err != nil {
+			return fmt.Errorf("provider deletion status is unavailable: %w", err)
+		}
+		if response.StatusCode() == http.StatusNotFound {
+			return nil
+		}
+		if response.StatusCode() != http.StatusOK || response.JSON200 == nil {
+			return fmt.Errorf("provider deletion status returned HTTP %d", response.StatusCode())
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
 }
 
 func (r *ProviderResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
@@ -332,12 +390,18 @@ func toProviderResourceModel(item cp.ModuleProvider) ProviderResourceModel {
 		configuration = jsontypes.NewNormalizedValue(string(configJson))
 	}
 
+	var deletionRequestedAt *string
+	if item.DeletionRequestedAt != nil {
+		value := item.DeletionRequestedAt.Format(time.RFC3339Nano)
+		deletionRequestedAt = &value
+	}
 	return ProviderResourceModel{
-		Id:                types.StringValue(item.Id),
-		Description:       types.StringPointerValue(item.Description),
-		ProviderType:      types.StringValue(item.ProviderType),
-		Source:            types.StringValue(item.Source),
-		VersionConstraint: types.StringValue(item.VersionConstraint),
-		Configuration:     configuration,
+		DeletionRequestedAt: types.StringPointerValue(deletionRequestedAt),
+		Id:                  types.StringValue(item.Id),
+		Description:         types.StringPointerValue(item.Description),
+		ProviderType:        types.StringValue(item.ProviderType),
+		Source:              types.StringValue(item.Source),
+		VersionConstraint:   types.StringValue(item.VersionConstraint),
+		Configuration:       configuration,
 	}
 }
