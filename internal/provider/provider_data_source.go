@@ -31,12 +31,13 @@ type ProviderDataSource struct {
 
 // ProviderDataSourceModel describes the data source data model.
 type ProviderDataSourceModel struct {
-	Id                types.String         `tfsdk:"id"`
-	Description       types.String         `tfsdk:"description"`
-	ProviderType      types.String         `tfsdk:"provider_type"`
-	Source            types.String         `tfsdk:"source"`
-	VersionConstraint types.String         `tfsdk:"version_constraint"`
-	Configuration     jsontypes.Normalized `tfsdk:"configuration"`
+	Id                  types.String         `tfsdk:"id"`
+	Description         types.String         `tfsdk:"description"`
+	ProviderType        types.String         `tfsdk:"provider_type"`
+	Source              types.String         `tfsdk:"source"`
+	VersionConstraint   types.String         `tfsdk:"version_constraint"`
+	Configuration       jsontypes.Normalized `tfsdk:"configuration"`
+	DeletionRequestedAt types.String         `tfsdk:"deletion_requested_at"`
 }
 
 func (d *ProviderDataSource) Metadata(ctx context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
@@ -79,6 +80,10 @@ func (d *ProviderDataSource) Schema(ctx context.Context, req datasource.SchemaRe
 			},
 			"version_constraint": schema.StringAttribute{
 				MarkdownDescription: "The version constraint for the provider",
+				Computed:            true,
+			},
+			"deletion_requested_at": schema.StringAttribute{
+				MarkdownDescription: "When deletion was requested. Omitted while this Provider is active.",
 				Computed:            true,
 			},
 			"configuration": schema.StringAttribute{
@@ -147,6 +152,7 @@ func (d *ProviderDataSource) Read(ctx context.Context, req datasource.ReadReques
 	data.Source = convertedData.Source
 	data.VersionConstraint = convertedData.VersionConstraint
 	data.Configuration = convertedData.Configuration
+	data.DeletionRequestedAt = convertedData.DeletionRequestedAt
 
 	// Save data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)

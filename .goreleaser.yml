@@ -16,7 +16,7 @@ builds:
   flags:
     - -trimpath
   ldflags:
-    - '-s -w -X main.version={{.Version}} -X main.commit={{.Commit}}'
+    - '-w -X main.version={{.Version}} -X main.commit={{.Commit}}'
   goos:
     - freebsd
     - windows
@@ -69,7 +69,7 @@ sboms:
     cmd: qualify-release-content.sh
     args: []
     env:
-      - GOTOOLCHAIN=go1.26.10
+      - GOTOOLCHAIN=go1.26.11
       - GOWORK=off
       - GOENV=off
       - QUALIFY_SOURCE_SHA={{ .FullCommit }}

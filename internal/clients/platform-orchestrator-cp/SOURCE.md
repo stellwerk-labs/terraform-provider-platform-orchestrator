@@ -1,27 +1,23 @@
 # Orchestrator Control Plane API contract
 
 `spec.yaml` is a byte-identical copy of the selected immutable public source
-commit and the sole input of the official generated client.
+commit and the sole input of the repository's pinned official generated client.
 
 - Repository: `stellwerk-labs/platform-orchestrator-cp`
-- Commit: `3abef77d1ce1b4124576516c3e4f22f8f97ef9c8`
+- Commit: `935835a8efa36623f955294b48fadbaedb90436f`
 - File: `openapi/spec.yaml`
-- Git blob: `f802f0d861e855b448e1d29bf0e7c1ddec1ff4bd`
-- File SHA-256: `5b5e5382d9aa6ce9eed54d88431a20fb4b6d4e9672298f40fb449f608ad6c71a`
+- Git blob: `d2862d7346e280051110bfa0394f66bc15a61f62`
+- File SHA-256: `d622638c9aaa6baaf3b9648cbba3f3518f1738e6d20583f804c69c0f1421db7c`
 
-This additive contract exposes common `max_parallel_jobs` and
-`supported_protocols` on every Runner configuration. Update omission preserves
-Orchestrator settings; explicit null clears them. Existing clients may omit both
-fields.
-The provider uses the repository's pinned official oapi-codegen generator without
-hand-editing the spec or generated client.
+This contract exposes deferred Provider deletion: `202 Accepted` requests
+retirement, and `deletion_requested_at` remains readable until cleanup completes.
+Existing Runner capacity/protocol fields and Module Draft interfaces are retained.
+The corresponding public SDK is CP shared/v3 v3.3.0.
 
-The source commit is publicly reachable through the independently published
-`shared/v3.1.0` SDK tag. The provider features require matching qualified
-Orchestrator server behavior: Control Plane 3.3.0, Data Plane 4.2.0, IAM 2.6.0
-and Runner 3.2.0. Publishing the SDK alone does not add that behavior to an older
-running server.
-
-Before a client release, verify this immutable source through the unchanged
-public-source checks without local spec overrides. Regenerate through the
-repository's official generators; do not hand-edit the snapshot or client.
+The exact source commit is publicly reachable. This source pin does not prove
+that a server artifact has been released or that a running installation supports
+the new behavior. Client publication requires the qualified coordinated server
+set and ordinary public-source checks without local specification overrides.
+Regenerate through the repository's official generators; do not hand-edit the
+snapshot or generated client. IAM's automation contract is unchanged in this
+train, so its existing public source pin is retained.

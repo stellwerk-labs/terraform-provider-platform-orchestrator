@@ -30,6 +30,7 @@ data "platform-orchestrator_provider" "my_aws_provider" {
 ### Read-Only
 
 - `configuration` (String) JSON encoded configuration of the provider
+- `deletion_requested_at` (String) When deletion was requested. Omitted while this Provider is active.
 - `description` (String) Provider description
 - `source` (String) The source of the provider
 - `version_constraint` (String) The version constraint for the provider

@@ -38,8 +38,20 @@ resource "platform-orchestrator_provider" "aws" {
 ### Optional
 
 - `configuration` (String) JSON encoded configuration of the provider.
-- `deletion_policy` (String) Destroy behavior: delete (default) requests API deletion and reports references that block it; retain removes only Terraform ownership without modifying the API resource. Select retain explicitly for dependencies of permanently retained Module history. Import retained identities before managing them again.
+- `deletion_policy` (String) Destroy behavior: delete (default) requests Provider retirement and waits for confirmed removal. Managed bindings or in-flight operations keep its configuration available; a delete timeout preserves Terraform ownership for retry. Retain removes only Terraform ownership without requesting retirement. Import a retained Provider before managing it again.
 - `description` (String) The description of the Module Provider.
+- `timeouts` (Block, Optional) (see [below for nested schema](#nestedblock--timeouts))
+
+### Read-Only
+
+- `deletion_requested_at` (String) When deletion was requested. Configuration remains available until managed state and in-flight operations release the Provider.
+
+<a id="nestedblock--timeouts"></a>
+### Nested Schema for `timeouts`
+
+Optional:
+
+- `delete` (String) A string that can be [parsed as a duration](https://pkg.go.dev/time#ParseDuration) consisting of numbers and unit suffixes, such as "30s" or "2h45m". Valid time units are "s" (seconds), "m" (minutes), "h" (hours). Setting a timeout for a Delete operation is only applicable if changes are saved into state before the destroy operation occurs.
 
 ## Import
 
