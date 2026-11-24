@@ -11,6 +11,7 @@ check_spec() {
   local revision="$2"
   local vendored_spec="$3"
   local local_spec="${4:-}"
+  local source_file="${5:-openapi/spec.yaml}"
   local repository_name="${repository##*/}"
   local downloaded_spec="$temp_dir/$repository_name.yaml"
   local normalized_vendored="$temp_dir/$repository_name-vendored.yaml"
@@ -20,7 +21,7 @@ check_spec() {
     cp "$local_spec" "$downloaded_spec"
   else
     curl --fail --silent --show-error --location \
-      "https://raw.githubusercontent.com/$repository/$revision/openapi/spec.yaml" \
+      "https://raw.githubusercontent.com/$repository/$revision/$source_file" \
       --output "$downloaded_spec"
   fi
 
@@ -28,7 +29,7 @@ check_spec() {
   awk 'NF { while (blank > 0) { print ""; blank-- } print; next } { blank++ }' "$downloaded_spec" >"$normalized_downloaded"
 
   if ! cmp --silent "$normalized_vendored" "$normalized_downloaded"; then
-    echo "$vendored_spec differs from $repository@$revision/openapi/spec.yaml" >&2
+    echo "$vendored_spec differs from $repository@$revision/$source_file" >&2
     return 1
   fi
 }
@@ -57,7 +58,8 @@ check_spec_sha() {
 
 # The Core and Data Plane pins and digests live in their SOURCE.md files.
 cp_revision="$(source_value internal/clients/platform-orchestrator-cp/SOURCE.md Commit)"
-if [[ "$cp_revision" == local-candidate-* && -z "${CP_SPEC_PATH:-}" ]]; then
+cp_qualification="$(source_value internal/clients/platform-orchestrator-cp/SOURCE.md Qualification)"
+if [[ "$cp_qualification" == local-candidate && -z "${CP_SPEC_PATH:-}" ]]; then
   echo "Unpublished Core candidate requires explicit CP_SPEC_PATH for local qualification." >&2
   exit 1
 fi
@@ -65,6 +67,22 @@ dp_revision="$(source_value internal/clients/platform-orchestrator-dp/SOURCE.md 
 check_spec_sha internal/clients/platform-orchestrator-cp/spec.yaml "$(source_value internal/clients/platform-orchestrator-cp/SOURCE.md 'File SHA-256')"
 check_spec_sha internal/clients/platform-orchestrator-dp/spec.yaml "$(source_value internal/clients/platform-orchestrator-dp/SOURCE.md 'File SHA-256')"
 
+dp_qualification="$(source_value internal/clients/platform-orchestrator-dp/SOURCE.md Qualification)"
+if [[ "$dp_qualification" == local-candidate && -z "${DP_SPEC_PATH:-}" ]]; then
+  echo "Unpublished Data Plane candidate requires explicit DP_SPEC_PATH for local qualification." >&2
+  exit 1
+fi
+
+# Pipeline lifecycle and directional defaults use Core's separate public contract.
+pipeline_revision="$(source_value internal/clients/pipelines/SOURCE.md Commit)"
+if [[ "$pipeline_revision" == local-candidate-* && -z "${PIPELINES_SPEC_PATH:-}" ]]; then
+  echo "Unpublished pipeline candidate requires explicit PIPELINES_SPEC_PATH for local qualification." >&2
+  exit 1
+fi
+check_spec_sha internal/clients/pipelines/spec.yaml "$(source_value internal/clients/pipelines/SOURCE.md 'File SHA-256')" "Pipeline contract"
+
 check_spec stellwerk-labs/platform-orchestrator-cp "$cp_revision" internal/clients/platform-orchestrator-cp/spec.yaml "${CP_SPEC_PATH:-}"
 check_spec stellwerk-labs/platform-orchestrator-dp "$dp_revision" internal/clients/platform-orchestrator-dp/spec.yaml "${DP_SPEC_PATH:-}"
 check_spec stellwerk-labs/platform-orchestrator-iam "$iam_revision" internal/clients/platform-orchestrator-iam/spec.yaml "${IAM_SPEC_PATH:-}"
+
+check_spec stellwerk-labs/platform-orchestrator-cp "$pipeline_revision" internal/clients/pipelines/spec.yaml "${PIPELINES_SPEC_PATH:-}" openapi/pipelines.yaml

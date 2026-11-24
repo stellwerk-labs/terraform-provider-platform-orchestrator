@@ -7,7 +7,7 @@ This repo holds the source code for the Platform Orchestrator terraform provider
 Release archives include `licenses/`: the application's EUPL text, Go's
 license/patent grants, and the union of dependency notices for every supported
 configured GoReleaser target, including Windows, Darwin and FreeBSD. Collection
-uses checksum-verified go-licenses v2.0.1 and Go 1.26.10, without changing the module's
+uses checksum-verified go-licenses v2.0.1 and Go 1.26.11, without changing the module's
 minimum Go version. Unknown licenses and missing/empty legal notices fail the
 build. Reciprocal-license source files saved by go-licenses are preserved too.
 Generated notices are replaced only when their recorded checksums match and no
@@ -119,9 +119,6 @@ To generate or update documentation, run `make generate`.
 
 In order to run the full suite of Acceptance tests, run `make testacc`.
 
-The disconnected-agent case also needs the owned receiver prerequisites in
-[Testing disconnected-agent deployments](docs/testing-agent-deployments.md).
-
 *Note:* Acceptance tests create real resources, and often cost money to run.
 
 They run against the organization in `PO_ORG_ID` with an organization Admin
@@ -138,7 +135,7 @@ make testacc
 ## Release-content verification
 
 The pinned GoReleaser OSS SBOM hook inspects every configured archive before
-checksums, signing or upload. It verifies the actual Go 1.26.10 toolchain,
+checksums, signing or upload. It verifies the actual Go 1.26.11 toolchain,
 architecture, compiled module graph and exact source-collected notice bytes,
 then generates per-archive SPDX 2.3 using digest-pinned Syft 1.54.1. Producer
 statements bind actual archive/SBOM hashes to the source tag, workflow revision

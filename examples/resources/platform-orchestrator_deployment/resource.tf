@@ -2,6 +2,8 @@ resource "platform-orchestrator_deployment" "main" {
   project_id = "my-project"
   env_id     = "development"
   mode       = "deploy"
+  # Optional exact published version; omission uses the server default.
+  # pipeline_version_id = platform-orchestrator_pipeline_version.release.id
   manifest = jsonencode({
     workloads = {}
     shared    = {}

@@ -28,16 +28,14 @@ resource "platform-orchestrator_module_version" "release" {
   module_id        = platform-orchestrator_module_catalogue_entry.service_labels.id
   semantic_version = "1.0.0"
   definition = jsonencode({
-    # This example creates a new Resource Type with contract version 1.
-    resource_type_version = 1
-    output_schema         = jsondecode(platform-orchestrator_resource_type.service_labels.output_schema)
-    module_source         = "inline"
-    module_source_code    = "output \"labels\" { value = { managed_by = \"stellwerk\" } }"
-    module_inputs         = {}
-    module_params         = {}
-    provider_mapping      = {}
-    dependencies          = {}
-    coprovisioned         = []
+    output_schema      = jsondecode(platform-orchestrator_resource_type.service_labels.output_schema)
+    module_source      = "inline"
+    module_source_code = "output \"labels\" { value = { managed_by = \"stellwerk\" } }"
+    module_inputs      = {}
+    module_params      = {}
+    provider_mapping   = {}
+    dependencies       = {}
+    coprovisioned      = []
   })
 }
 

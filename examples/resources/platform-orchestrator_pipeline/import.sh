@@ -1,0 +1,1 @@
+terraform import platform-orchestrator_pipeline.reviewed my-project/PIPELINE_UUID

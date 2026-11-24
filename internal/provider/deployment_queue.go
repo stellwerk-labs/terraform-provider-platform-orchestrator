@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 
@@ -106,10 +108,20 @@ func describeEnvironmentFence(orgID string, fence dp.EnvironmentFence) string {
 	return detail + ". Acknowledging starts no deployment; apply again afterwards."
 }
 
+func (d *DeploymentResource) awaitPreparedQueue(ctx context.Context, body dp.DeploymentCreateBody, item dp.DeploymentQueueItem, diagnostics *diag.Diagnostics) (*dp.Deployment, bool) {
+	expected := dp.DeploymentQueueItem{Id: item.Id, OrgId: d.orgId, ProjectId: body.ProjectId, EnvId: body.EnvId, Mode: dp.DeploymentQueueItemMode(body.Mode)}
+	if !deploymentQueueMatches(item, expected) {
+		diagnostics.AddError(PO_API_ERR, "Deployment queue admission scope did not match its prepared request.")
+		return nil, false
+	}
+	return d.awaitQueuedDeployment(ctx, item, diagnostics)
+}
+
 // awaitQueuedDeployment follows a queued request until it became a Deployment
 // and returns that Deployment. When ctx ends first, the request is cancelled so
 // that no deployment Terraform does not track starts later.
-func (d *DeploymentResource) awaitQueuedDeployment(ctx context.Context, item dp.DeploymentQueueItem, diagnostics *diag.Diagnostics) *dp.Deployment {
+// The second result confirms no admission; false also covers an unknown outcome.
+func (d *DeploymentResource) awaitQueuedDeployment(ctx context.Context, item dp.DeploymentQueueItem, diagnostics *diag.Diagnostics) (*dp.Deployment, bool) {
 	tflog.Info(ctx, "Environment busy, deployment request waits in the deployment queue", map[string]any{
 		"queue_item_id": item.Id.String(), "position": item.Position, "expires_at": item.ExpiresAt.Format(time.RFC3339),
 	})
@@ -127,10 +139,14 @@ func (d *DeploymentResource) awaitQueuedDeployment(ctx context.Context, item dp.
 				continue
 			}
 			diagnostics.AddError(PO_CLIENT_ERR, fmt.Sprintf("Unable to read deployment queue item %s, got error: %s", item.Id, err))
-			return nil
+			return nil, false
 		} else if r.StatusCode() != http.StatusOK || r.JSON200 == nil {
 			addAPIResponseError(diagnostics, "Read deployment queue item "+item.Id.String(), r.StatusCode(), r.Body)
-			return nil
+			return nil, false
+		}
+		if !deploymentQueueMatches(*r.JSON200, item) {
+			diagnostics.AddError(PO_API_ERR, "Deployment queue read identity or scope did not match its admission.")
+			return nil, false
 		}
 		if r.JSON200.State == dp.Queued && (r.JSON200.Position != item.Position || r.JSON200.Attempts != item.Attempts) {
 			tflog.Info(ctx, "Deployment request still queued", map[string]any{
@@ -141,8 +157,13 @@ func (d *DeploymentResource) awaitQueuedDeployment(ctx context.Context, item dp.
 	}
 	if item.State == dp.Dispatched && item.DeploymentId != nil {
 		tflog.Info(ctx, "Queued deployment request started", map[string]any{"queue_item_id": item.Id.String(), "deployment_id": item.DeploymentId.String()})
-		return d.getDeployment(ctx, item, diagnostics)
+		return d.getDeployment(ctx, item, diagnostics), false
 	}
+	return nil, d.reportQueuedRefusal(ctx, item, diagnostics)
+}
+
+func (d *DeploymentResource) reportQueuedRefusal(ctx context.Context, item dp.DeploymentQueueItem, diagnostics *diag.Diagnostics) bool {
+	refused := item.State == dp.Cancelled || item.State == dp.Rejected || item.State == dp.Expired
 	reason := ref.DerefOr(item.ReasonCode, string(item.State))
 	detail := fmt.Sprintf("The deployment request waited in the environment's deployment queue as item %s and ended %s (%s): %s.", item.Id, item.State, reason, ref.DerefOr(item.ReasonMessage, ""))
 	switch {
@@ -152,7 +173,7 @@ func (d *DeploymentResource) awaitQueuedDeployment(ctx context.Context, item dp.
 			failed = "deployment " + item.ReasonDeploymentId.String()
 		}
 		diagnostics.AddError("Deployment halted after a failure", detail+fmt.Sprintf(" halt_on_failure is set, so the deployment did not start after %s failed. Find out why it failed, fix the cause and apply again.", failed))
-		return nil
+		return refused
 	case reason == "deployment_base_changed":
 		detail += " Another deployment changed the environment; refresh and apply again."
 	case reason == string(dp.OutcomeUnreconciled):
@@ -161,26 +182,30 @@ func (d *DeploymentResource) awaitQueuedDeployment(ctx context.Context, item dp.
 		detail += " The request expired before the environment became free; apply again."
 	}
 	diagnostics.AddError("Queued deployment did not start", detail)
-	return nil
+	return refused
 }
 
 // abandonQueuedDeployment cancels a request whose wait outlived the timeout. A
 // cancellation can lose the race against promotion; a request that started
 // anyway is returned so that state records the running Deployment.
-func (d *DeploymentResource) abandonQueuedDeployment(ctx context.Context, item dp.DeploymentQueueItem, diagnostics *diag.Diagnostics) *dp.Deployment {
+func (d *DeploymentResource) abandonQueuedDeployment(ctx context.Context, item dp.DeploymentQueueItem, diagnostics *diag.Diagnostics) (*dp.Deployment, bool) {
 	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), queueCancelTimeout)
 	defer cancel()
 	reason := "Terraform stopped waiting: the create or update timeout elapsed"
-	if r, err := d.dpClient.CancelDeploymentQueueItemWithResponse(cleanup, d.orgId, item.Id, dp.DeploymentQueueCancelBody{Reason: &reason}); err == nil && r.StatusCode() == http.StatusOK && r.JSON200 != nil && r.JSON200.State == dp.Cancelled {
+	if r, err := d.dpClient.CancelDeploymentQueueItemWithResponse(cleanup, d.orgId, item.Id, dp.DeploymentQueueCancelBody{Reason: &reason}); err == nil && r.StatusCode() == http.StatusOK && r.JSON200 != nil && deploymentQueueMatches(*r.JSON200, item) && r.JSON200.State == dp.Cancelled {
 		diagnostics.AddError("Timed out in the deployment queue", fmt.Sprintf("The deployment request waited in the environment's deployment queue until the timeout elapsed and was cancelled (queue item %s). Increase the create or update timeout to wait longer.", item.Id))
-		return nil
+		return nil, true
 	}
-	if r, err := d.dpClient.GetDeploymentQueueItemWithResponse(cleanup, d.orgId, item.Id); err == nil && r.StatusCode() == http.StatusOK && r.JSON200 != nil && r.JSON200.State == dp.Dispatched && r.JSON200.DeploymentId != nil {
+	if r, err := d.dpClient.GetDeploymentQueueItemWithResponse(cleanup, d.orgId, item.Id); err == nil && r.StatusCode() == http.StatusOK && r.JSON200 != nil && deploymentQueueMatches(*r.JSON200, item) && r.JSON200.State == dp.Dispatched && r.JSON200.DeploymentId != nil {
 		diagnostics.AddError("Timed out as the queued deployment started", fmt.Sprintf("Queue item %s started deployment %s as the timeout elapsed. The deployment is recorded in state but its completion was not awaited.", item.Id, *r.JSON200.DeploymentId))
-		return d.getDeployment(cleanup, *r.JSON200, diagnostics)
+		return d.getDeployment(cleanup, *r.JSON200, diagnostics), false
 	}
 	diagnostics.AddError("Timed out in the deployment queue", fmt.Sprintf("The deployment request waited in the environment's deployment queue until the timeout elapsed and could not be cancelled. Queue item %s may still start a deployment that Terraform does not track.", item.Id))
-	return nil
+	return nil, false
+}
+
+func deploymentQueueMatches(item, expected dp.DeploymentQueueItem) bool {
+	return item.Id != uuid.Nil && item.Id == expected.Id && item.OrgId == expected.OrgId && item.ProjectId == expected.ProjectId && item.EnvId == expected.EnvId && item.Mode == expected.Mode
 }
 
 func (d *DeploymentResource) getDeployment(ctx context.Context, item dp.DeploymentQueueItem, diagnostics *diag.Diagnostics) *dp.Deployment {
@@ -190,6 +215,10 @@ func (d *DeploymentResource) getDeployment(ctx context.Context, item dp.Deployme
 		return nil
 	} else if r.StatusCode() != http.StatusOK || r.JSON200 == nil {
 		addAPIResponseError(diagnostics, "Read deployment "+item.DeploymentId.String(), r.StatusCode(), r.Body)
+		return nil
+	}
+	if r.JSON200.Id != *item.DeploymentId || !deploymentMatchesScope(r.JSON200, item.OrgId, item.ProjectId, item.EnvId) {
+		diagnostics.AddError(PO_API_ERR, "Queued deployment identity or scope did not match its queue receipt.")
 		return nil
 	}
 	return r.JSON200

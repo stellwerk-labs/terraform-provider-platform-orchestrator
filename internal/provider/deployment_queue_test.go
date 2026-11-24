@@ -2,7 +2,10 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +18,37 @@ import (
 	dp "github.com/stellwerk-labs/terraform-provider-platform-orchestrator/internal/clients/platform-orchestrator-dp"
 	"github.com/stellwerk-labs/terraform-provider-platform-orchestrator/internal/ref"
 )
+
+func TestQueueReceiptMismatchCannotProveRefusal(t *testing.T) {
+	previous := deploymentQueuePollInterval
+	deploymentQueuePollInterval = time.Millisecond
+	t.Cleanup(func() { deploymentQueuePollInterval = previous })
+	for _, cancel := range []bool{false, true} {
+		t.Run(fmt.Sprintf("cancel=%t", cancel), func(t *testing.T) {
+			expected := dp.DeploymentQueueItem{Id: uuid.New(), OrgId: "org", ProjectId: "project", EnvId: "environment", Mode: dp.DeploymentQueueItemModeDeploy, State: dp.Queued}
+			other := expected
+			other.State, other.Id, other.EnvId = dp.Cancelled, uuid.New(), "other-environment"
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				require.NoError(t, json.NewEncoder(w).Encode(other))
+			}))
+			t.Cleanup(server.Close)
+			client, err := dp.NewClientWithResponses(server.URL)
+			require.NoError(t, err)
+			r := DeploymentResource{dpClient: client, orgId: "org"}
+			ctx, stop := context.WithCancel(t.Context())
+			defer stop()
+			if cancel {
+				stop()
+			}
+			var diagnostics diag.Diagnostics
+			deployment, refused := r.awaitQueuedDeployment(ctx, expected, &diagnostics)
+			require.Nil(t, deployment)
+			require.False(t, refused, "another queue item cannot release this operation's custody")
+			require.True(t, diagnostics.HasError())
+		})
+	}
+}
 
 func newQueueTestResource(t *testing.T) (*deploymentQueueFixture, *DeploymentResource) {
 	t.Helper()
@@ -36,7 +70,8 @@ func TestTimedOutQueuedDeploymentThatStartedAnywayIsRecorded(t *testing.T) {
 	cancel()
 
 	var diagnostics diag.Diagnostics
-	deployment := resource.awaitQueuedDeployment(ctx, fixture.item(dp.Queued), &diagnostics)
+	deployment, refused := resource.awaitQueuedDeployment(ctx, fixture.item(dp.Queued), &diagnostics)
+	require.False(t, refused)
 	require.NotNil(t, deployment)
 	fixture.configure(func(f *deploymentQueueFixture) { require.Equal(t, f.dispatched.Id, deployment.Id) })
 	require.Len(t, diagnostics.Errors(), 1)
@@ -60,6 +95,7 @@ func TestDeploymentConflictsAreDiagnosticsWithTheirCode(t *testing.T) {
 		require.Len(t, diagnostics.Errors(), 1, code)
 		require.Equal(t, summary, diagnostics.Errors()[0].Summary(), code)
 		require.Contains(t, diagnostics.Errors()[0].Detail(), "("+code+"): refused.", code)
+		require.Equal(t, code != "HTTP-409", deploymentAdmissionRefused(http.StatusConflict, &dp.N409Conflict{Error: code}), code)
 		require.Equal(t, code == "outcome_unreconciled", strings.HasSuffix(diagnostics.Errors()[0].Detail(), "refused. Fenced."), code)
 	}
 	var diagnostics diag.Diagnostics
@@ -115,7 +151,7 @@ func TestDeploymentSendsHaltOnFailureOnlyWhenItMayWait(t *testing.T) {
 				data.WhenBusy = types.StringValue(tc.whenBusy)
 			}
 			var diagnostics diag.Diagnostics
-			resource.doDeployment(t.Context(), &data, &diagnostics)
+			startDeploymentWireTest(t, resource, &data, &diagnostics)
 			require.Equal(t, tc.want, fixture.lastCreate().HaltOnFailure)
 		})
 	}
@@ -142,7 +178,9 @@ func TestHaltedQueuedDeploymentNamesTheFailedDeployment(t *testing.T) {
 				f.position, f.queueReads = 1, []dp.DeploymentQueueItemState{dp.Dispatched}
 			})
 			var diagnostics diag.Diagnostics
-			require.Nil(t, resource.awaitQueuedDeployment(t.Context(), fixture.item(dp.Queued), &diagnostics))
+			deployment, refused := resource.awaitQueuedDeployment(t.Context(), fixture.item(dp.Queued), &diagnostics)
+			require.Nil(t, deployment)
+			require.True(t, refused)
 			require.Len(t, diagnostics.Errors(), 1)
 			require.Equal(t, "Deployment halted after a failure", diagnostics.Errors()[0].Summary())
 			require.Contains(t, diagnostics.Errors()[0].Detail(), tc.want)
@@ -172,7 +210,7 @@ func TestPlanOnlyDeploymentWarnsWhenItsResultMayChange(t *testing.T) {
 				Mode: types.StringValue("plan_only"), WaitFor: types.BoolValue(false), WhenBusy: types.StringNull(), HaltOnFailure: types.BoolNull(),
 			}
 			var diagnostics diag.Diagnostics
-			require.NotNil(t, resource.doDeployment(t.Context(), &data, &diagnostics))
+			require.NotNil(t, startDeploymentWireTest(t, resource, &data, &diagnostics))
 			require.False(t, diagnostics.HasError())
 			var warnings []string
 			for _, warning := range diagnostics.Warnings() {
@@ -212,7 +250,7 @@ func TestDeploymentSendsWhenBusyExplicitly(t *testing.T) {
 				data.WhenBusy = types.StringValue(tc.whenBusy)
 			}
 			var diagnostics diag.Diagnostics
-			resource.doDeployment(t.Context(), &data, &diagnostics)
+			startDeploymentWireTest(t, resource, &data, &diagnostics)
 			require.Equal(t, tc.want, fixture.lastCreate().WhenBusy)
 		})
 	}

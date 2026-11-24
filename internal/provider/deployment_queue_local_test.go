@@ -80,16 +80,20 @@ type deploymentQueueFixture struct {
 	fence           *dp.EnvironmentFence
 	fenceUnreadable bool
 
-	deployments map[uuid.UUID]*dp.Deployment
-	recipient   string
-	creates     []dp.DeploymentCreateBody
-	reads       int
-	cancels     []string
+	deployments     map[uuid.UUID]*dp.Deployment
+	recipients      map[uuid.UUID]string
+	outputsFailAt   int
+	ambiguousCreate bool
+	requestKeys     []string
+	recipient       string
+	creates         []dp.DeploymentCreateBody
+	reads           int
+	cancels         []string
 }
 
 func newDeploymentQueueFixture(t *testing.T) (*deploymentQueueFixture, *httptest.Server) {
 	t.Helper()
-	fixture := &deploymentQueueFixture{t: t, running: true, deployments: map[uuid.UUID]*dp.Deployment{}}
+	fixture := &deploymentQueueFixture{t: t, running: true, deployments: map[uuid.UUID]*dp.Deployment{}, recipients: map[uuid.UUID]string{}}
 	server := httptest.NewServer(http.HandlerFunc(fixture.serveHTTP))
 	t.Cleanup(server.Close)
 	previous := deploymentQueuePollInterval
@@ -143,6 +147,7 @@ func (f *deploymentQueueFixture) halts() bool {
 func (f *deploymentQueueFixture) start() *dp.Deployment {
 	deployment := &dp.Deployment{Id: uuid.New(), OrgId: queueFixtureOrg, ProjectId: "shop", EnvId: "production", Mode: "deploy", Status: "executing", CreatedAt: time.Now().UTC().Truncate(time.Second), RunnerId: "runner"}
 	f.deployments[deployment.Id] = deployment
+	f.recipients[deployment.Id] = f.recipient
 	return deployment
 }
 
@@ -171,7 +176,12 @@ func (f *deploymentQueueFixture) serveHTTP(w http.ResponseWriter, r *http.Reques
 			return
 		}
 		f.creates = append(f.creates, body)
+		f.requestKeys = append(f.requestKeys, r.Header.Get("Idempotency-Key"))
 		f.recipient = *body.EncryptedOutputsRecipient
+		if f.ambiguousCreate {
+			refuse(http.StatusConflict, "fixture_ambiguous_admission", "controlled ambiguous admission response")
+			return
+		}
 		f.halt = body.HaltOnFailure != nil && *body.HaltOnFailure
 		reject := body.WhenBusy != nil && *body.WhenBusy == dp.Reject
 		switch {
@@ -239,7 +249,11 @@ func (f *deploymentQueueFixture) serveHTTP(w http.ResponseWriter, r *http.Reques
 			deployment.Status, deployment.CompletedAt = "succeeded", ref.Ref(deployment.CreatedAt.Add(time.Minute))
 			write(http.StatusOK, deployment)
 		case "encrypted-outputs":
-			write(http.StatusOK, dp.DeploymentEncryptedOutputs{Raw: f.encryptedOutputs()})
+			if f.outputsFailAt > 0 && len(f.creates) >= f.outputsFailAt {
+				refuse(http.StatusForbidden, "fixture-output-fault", "controlled output read failure")
+				return
+			}
+			write(http.StatusOK, dp.DeploymentEncryptedOutputs{Raw: f.encryptedOutputs(deployment.Id)})
 		default:
 			refuse(http.StatusNotFound, "API-404", "not found")
 		}
@@ -249,8 +263,132 @@ func (f *deploymentQueueFixture) serveHTTP(w http.ResponseWriter, r *http.Reques
 	}
 }
 
-func (f *deploymentQueueFixture) encryptedOutputs() string {
-	recipient, err := age.ParseX25519Recipient(f.recipient)
+// This is a real Terraform lifecycle against a controlled HTTP wire fixture,
+// not proof of native deployment execution or API authorization.
+func TestAccDeploymentOutputRecoveryLocal(t *testing.T) {
+	for _, update := range []bool{false, true} {
+		t.Run(fmt.Sprintf("update=%t", update), func(t *testing.T) {
+			fixture, server := newDeploymentQueueFixture(t)
+			fixture.configure(func(f *deploymentQueueFixture) { f.queueReads = []dp.DeploymentQueueItemState{dp.Dispatched} })
+			const address = "platform-orchestrator_deployment.shop"
+			var steps []resource.TestStep
+			if update {
+				steps = append(steps, resource.TestStep{Config: deploymentQueueConfig(server.URL, "before", "")})
+			}
+			config := deploymentQueueConfig(server.URL, "after", "")
+			steps = append(steps, resource.TestStep{
+				PreConfig: func() {
+					fixture.configure(func(f *deploymentQueueFixture) {
+						f.outputsFailAt = 1
+						if update {
+							f.outputsFailAt = 2
+						}
+					})
+				},
+				Config: config,
+				Check: func(state *terraform.State) error {
+					object := state.RootModule().Resources[address].Primary
+					fixture.configure(func(f *deploymentQueueFixture) {
+						require.Equal(t, f.dispatched.Id.String(), object.ID)
+						f.outputsFailAt = 0
+					})
+					require.Equal(t, "succeeded", object.Attributes["status"])
+					require.Empty(t, object.Attributes["outputs"], "a new deployment must not retain the preceding deployment's outputs")
+					require.False(t, object.Tainted, "output availability must not taint successful infrastructure")
+					return nil
+				},
+			}, resource.TestStep{
+				RefreshState: true,
+				Check: func(state *terraform.State) error {
+					object := state.RootModule().Resources[address].Primary
+					fixture.configure(func(f *deploymentQueueFixture) {
+						require.Equal(t, f.dispatched.Id.String(), object.ID)
+					})
+					require.Equal(t, `{"url":"https://shop.example.com"}`, object.Attributes["outputs"])
+					require.False(t, object.Tainted)
+					creates, _ := fixture.counts()
+					expectedCreates := 1
+					if update {
+						expectedCreates = 2
+					}
+					require.Equal(t, expectedCreates, creates, "refresh must never create another Deployment")
+					return nil
+				},
+			}, resource.TestStep{Config: config, PlanOnly: true})
+			resource.Test(t, resource.TestCase{ProtoV6ProviderFactories: testAccProtoV6ProviderFactories, Steps: steps})
+		})
+	}
+}
+
+func TestAccDeploymentDeferredOutputsLocal(t *testing.T) {
+	fixture, server := newDeploymentQueueFixture(t)
+	fixture.configure(func(f *deploymentQueueFixture) { f.queueReads = []dp.DeploymentQueueItemState{dp.Dispatched} })
+	config := deploymentQueueConfig(server.URL, "web", "wait_for = false")
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{Config: config},
+			{
+				PreConfig: func() {
+					fixture.configure(func(f *deploymentQueueFixture) {
+						f.dispatched.Status = "succeeded"
+						f.dispatched.CompletedAt = ref.Ref(f.dispatched.CreatedAt.Add(time.Minute))
+					})
+				},
+				RefreshState: true,
+				Check: func(state *terraform.State) error {
+					object := state.RootModule().Resources["platform-orchestrator_deployment.shop"].Primary
+					fixture.configure(func(f *deploymentQueueFixture) { require.Equal(t, f.dispatched.Id.String(), object.ID) })
+					require.Equal(t, `{"url":"https://shop.example.com"}`, object.Attributes["outputs"])
+					creates, _ := fixture.counts()
+					require.Equal(t, 1, creates)
+					return nil
+				},
+			},
+		},
+	})
+}
+
+func TestAccDeploymentPendingUpdateLocal(t *testing.T) {
+	fixture, server := newDeploymentQueueFixture(t)
+	fixture.configure(func(f *deploymentQueueFixture) { f.queueReads = []dp.DeploymentQueueItemState{dp.Dispatched} })
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{Config: deploymentQueueConfig(server.URL, "before", "")},
+			{
+				PreConfig: func() { fixture.configure(func(f *deploymentQueueFixture) { f.ambiguousCreate = true }) },
+				Config:    deploymentQueueConfig(server.URL, "after", ""), ExpectError: regexp.MustCompile(`fixture_ambiguous_admission`),
+			},
+			{
+				// A queue-only change would normally take Update's no-deploy path.
+				// Retained pending intent must be checked first, and refuse this switch.
+				Config:      deploymentQueueConfig(server.URL, "before", `when_busy = "queue"`),
+				ExpectError: regexp.MustCompile(`pending deployment intent or credentials changed`),
+			},
+			{
+				PreConfig: func() { fixture.configure(func(f *deploymentQueueFixture) { f.ambiguousCreate = false }) },
+				Config:    deploymentQueueConfig(server.URL, "after", ""),
+				Check: func(*terraform.State) error {
+					fixture.configure(func(f *deploymentQueueFixture) {
+						require.Len(t, f.creates, 3, "the incompatible pending switch must not POST")
+						require.Equal(t, f.requestKeys[1], f.requestKeys[2])
+						require.Equal(t, f.creates[1], f.creates[2], "retry must retain the exact body/recipient")
+					})
+					return nil
+				},
+			},
+			{Config: deploymentQueueConfig(server.URL, "after", ""), Check: func(*terraform.State) error {
+				creates, _ := fixture.counts()
+				require.Equal(t, 3, creates, "completed unchanged input must remain a no-op")
+				return nil
+			}},
+		},
+	})
+}
+
+func (f *deploymentQueueFixture) encryptedOutputs(id uuid.UUID) string {
+	recipient, err := age.ParseX25519Recipient(f.recipients[id])
 	require.NoError(f.t, err)
 	var encoded bytes.Buffer
 	encoder := base64.NewEncoder(base64.StdEncoding, &encoded)

@@ -8,19 +8,55 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
+	frameworkprovider "github.com/hashicorp/terraform-plugin-framework/provider"
+	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflogtest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	cp "github.com/stellwerk-labs/terraform-provider-platform-orchestrator/internal/clients/platform-orchestrator-cp"
+	dp "github.com/stellwerk-labs/terraform-provider-platform-orchestrator/internal/clients/platform-orchestrator-dp"
 
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
 )
+
+func TestConfiguredDeploymentClientRefusesRedirect(t *testing.T) {
+	clearEnv(t)
+	t.Setenv(PO_CA_FILE_ENV_VAR, "")
+	var redirected atomic.Bool
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		redirected.Store(true)
+		w.WriteHeader(http.StatusCreated)
+	}))
+	t.Cleanup(target.Close)
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL, http.StatusTemporaryRedirect)
+	}))
+	t.Cleanup(origin.Close)
+	p := &PlatformOrchestratorProvider{}
+	var schemaResponse frameworkprovider.SchemaResponse
+	p.Schema(t.Context(), frameworkprovider.SchemaRequest{}, &schemaResponse)
+	state := tfsdk.State{Schema: schemaResponse.Schema}
+	require.False(t, state.Set(t.Context(), PlatformOrchestratorProviderModel{
+		ApiUrl: types.StringValue(origin.URL), OrgId: types.StringValue("org"), AuthToken: types.StringValue("private-token"),
+		ConfigFilePath: types.StringNull(), CaFile: types.StringNull(),
+	}).HasError())
+	var response frameworkprovider.ConfigureResponse
+	p.Configure(t.Context(), frameworkprovider.ConfigureRequest{Config: tfsdk.Config{Schema: schemaResponse.Schema, Raw: state.Raw}}, &response)
+	require.False(t, response.Diagnostics.HasError())
+	client, ok := response.ResourceData.(*PlatformOrchestratorProviderData)
+	require.True(t, ok)
+	result, err := client.DpClient.CreateDeploymentWithResponse(t.Context(), "org", &dp.CreateDeploymentParams{}, dp.DeploymentCreateBody{})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusTemporaryRedirect, result.StatusCode())
+	require.False(t, redirected.Load(), "pending request authority must remain bound to its configured origin")
+}
 
 // testAccProtoV6ProviderFactories is used to instantiate a provider during acceptance testing.
 // The factory function is called for each Terraform CLI command to create a provider

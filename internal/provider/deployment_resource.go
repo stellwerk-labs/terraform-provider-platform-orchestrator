@@ -2,13 +2,10 @@ package provider
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"regexp"
-	"strings"
 	"time"
 
 	"filippo.io/age"
@@ -28,6 +25,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"gopkg.in/yaml.v3"
 
+	"github.com/stellwerk-labs/terraform-provider-platform-orchestrator/internal/clients/pipelines"
 	dp "github.com/stellwerk-labs/terraform-provider-platform-orchestrator/internal/clients/platform-orchestrator-dp"
 	"github.com/stellwerk-labs/terraform-provider-platform-orchestrator/internal/ref"
 )
@@ -41,27 +39,31 @@ func NewDeploymentResource() resource.Resource {
 }
 
 type DeploymentResource struct {
-	dpClient dp.ClientWithResponsesInterface
-	orgId    string
+	dpClient              dp.ClientWithResponsesInterface
+	pipelineClient        pipelines.ClientWithResponsesInterface
+	orgId                 string
+	scopeFingerprint      string
+	credentialFingerprint string
 }
 
 type DeploymentResourceModel struct {
-	DraftTests    types.Map      `tfsdk:"draft_test_snapshots"`
-	ProjectId     types.String   `tfsdk:"project_id"`
-	EnvId         types.String   `tfsdk:"env_id"`
-	Manifest      types.String   `tfsdk:"manifest"`
-	Mode          types.String   `tfsdk:"mode"`
-	Id            types.String   `tfsdk:"id"`
-	CreatedAt     types.String   `tfsdk:"created_at"`
-	CompletedAt   types.String   `tfsdk:"completed_at"`
-	Status        types.String   `tfsdk:"status"`
-	StatusMessage types.String   `tfsdk:"status_message"`
-	RunnerId      types.String   `tfsdk:"runner_id"`
-	WaitFor       types.Bool     `tfsdk:"wait_for"`
-	WhenBusy      types.String   `tfsdk:"when_busy"`
-	HaltOnFailure types.Bool     `tfsdk:"halt_on_failure"`
-	Outputs       types.String   `tfsdk:"outputs"`
-	Timeouts      timeouts.Value `tfsdk:"timeouts"`
+	PipelineVersionID types.String   `tfsdk:"pipeline_version_id"`
+	DraftTests        types.Map      `tfsdk:"draft_test_snapshots"`
+	ProjectId         types.String   `tfsdk:"project_id"`
+	EnvId             types.String   `tfsdk:"env_id"`
+	Manifest          types.String   `tfsdk:"manifest"`
+	Mode              types.String   `tfsdk:"mode"`
+	Id                types.String   `tfsdk:"id"`
+	CreatedAt         types.String   `tfsdk:"created_at"`
+	CompletedAt       types.String   `tfsdk:"completed_at"`
+	Status            types.String   `tfsdk:"status"`
+	StatusMessage     types.String   `tfsdk:"status_message"`
+	RunnerId          types.String   `tfsdk:"runner_id"`
+	WaitFor           types.Bool     `tfsdk:"wait_for"`
+	WhenBusy          types.String   `tfsdk:"when_busy"`
+	HaltOnFailure     types.Bool     `tfsdk:"halt_on_failure"`
+	Outputs           types.String   `tfsdk:"outputs"`
+	Timeouts          timeouts.Value `tfsdk:"timeouts"`
 }
 
 func (d *DeploymentResource) Metadata(ctx context.Context, request resource.MetadataRequest, response *resource.MetadataResponse) {
@@ -71,9 +73,13 @@ func (d *DeploymentResource) Metadata(ctx context.Context, request resource.Meta
 func (d *DeploymentResource) Schema(ctx context.Context, request resource.SchemaRequest, response *resource.SchemaResponse) {
 	response.Schema = schema.Schema{
 		// This description is used by the documentation generator and the language server.
-		MarkdownDescription: "Deployment resource",
+		MarkdownDescription: "Deployment resource.\n\n" +
+			"Once Terraform has retained an accepted deployment and its private output identity, refresh can retrieve that deployment's outputs without deploying again. Protect the Terraform state backend: private resource metadata contains encryption material and is not encrypted by the provider.\n\n" +
+			"If the deployment has conclusively succeeded but outputs cannot be retrieved, apply reports a warning and retains the successful deployment without taint. Outputs remain empty until an authorized refresh can retrieve and decrypt them.\n\n" +
+			"A create error can leave the resource tainted. Refresh does not remove taint, so verify the accepted deployment before another apply, which may create a replacement. Termination before Terraform receives and saves the response can still lose custody, including when applying a saved plan. Historical output identities that were not retained cannot be recovered.",
 
 		Attributes: map[string]schema.Attribute{
+			"pipeline_version_id": schema.StringAttribute{Optional: true, MarkdownDescription: "Exact published pipeline Version UUID. Resolved through Core to its immutable numeric version; the server validates policy, Runner compatibility and executable digest. Omission uses the server default and preserves existing deployments on upgrade. Changing the selection starts a new deployment; it never edits a recipe or approves its gates."},
 			"draft_test_snapshots": schema.MapAttribute{
 				Optional: true, ElementType: types.StringType,
 				MarkdownDescription: "Exact captured Module tests, mapping stable Module UUIDs to immutable snapshot UUIDs scoped to this Environment. These use a separate server operation and never fall back to published Defaults on an older server. Capture with platform-orchestrator_module_draft_test first. Changing a selection creates a new deployment; it does not edit the snapshot or publish a Version.",
@@ -147,7 +153,7 @@ func (d *DeploymentResource) Schema(ctx context.Context, request resource.Schema
 				Computed:            true,
 			},
 			"wait_for": schema.BoolAttribute{
-				MarkdownDescription: "Whether to wait for the deployment to complete. Defaults to true. If false, the output will be empty.",
+				MarkdownDescription: "Whether to wait for the deployment to complete. Defaults to true. If false, outputs are initially empty and a later refresh retrieves them after successful completion.",
 				Computed:            true,
 				Optional:            true,
 				Default:             booldefault.StaticBool(true),
@@ -202,6 +208,14 @@ func (d *DeploymentResource) ValidateConfig(ctx context.Context, request resourc
 	var tests types.Map
 	response.Diagnostics.Append(request.Config.GetAttribute(ctx, path.Root("draft_test_snapshots"), &tests)...)
 	validateDeploymentDraftTests(tests, true, &response.Diagnostics)
+	var selectedPipeline types.String
+	response.Diagnostics.Append(request.Config.GetAttribute(ctx, path.Root("pipeline_version_id"), &selectedPipeline)...)
+	if !selectedPipeline.IsNull() && !selectedPipeline.IsUnknown() {
+		id, err := uuid.Parse(selectedPipeline.ValueString())
+		if err != nil || id == uuid.Nil {
+			response.Diagnostics.AddAttributeError(path.Root("pipeline_version_id"), PO_INPUT_ERR, "Must identify an exact published pipeline version UUID.")
+		}
+	}
 	var whenBusy types.String
 	var halt types.Bool
 	response.Diagnostics.Append(request.Config.GetAttribute(ctx, path.Root("when_busy"), &whenBusy)...)
@@ -227,38 +241,27 @@ func (d *DeploymentResource) Configure(ctx context.Context, request resource.Con
 	}
 
 	d.dpClient = providerData.DpClient
+	d.pipelineClient = providerData.PipelineClient
 	d.orgId = providerData.OrgId
+	d.scopeFingerprint = providerData.deploymentScope
+	d.credentialFingerprint = providerData.deploymentCredential
 }
 
-func (d *DeploymentResource) doDeployment(ctx context.Context, data *DeploymentResourceModel, diags *diag.Diagnostics) (outputsKey *age.X25519Identity) {
-	selectedTests := validateDeploymentDraftTests(data.DraftTests, false, diags)
-	if diags.HasError() {
-		return nil
+func (d *DeploymentResource) deploymentBody(data DeploymentResourceModel) (dp.DeploymentCreateBody, error) {
+	var body dp.DeploymentCreateBody
+	if data.ProjectId.IsUnknown() || data.EnvId.IsUnknown() || data.Manifest.IsUnknown() || data.Mode.IsUnknown() || data.PipelineVersionID.IsUnknown() {
+		return body, fmt.Errorf("deployment inputs must be known before admission")
 	}
-	if data.Mode.IsNull() {
-		data.Mode = types.StringValue(string(dp.DeploymentCreateBodyModeDeploy))
-	}
-	if data.WaitFor.IsNull() {
-		data.WaitFor = types.BoolValue(true)
-	}
-
 	var manifest dp.DeploymentManifest
 	if err := yaml.Unmarshal([]byte(data.Manifest.ValueString()), &manifest); err != nil {
-		diags.AddError(PO_API_ERR, fmt.Sprintf("Unable to parse manifest, got error: %s", err))
-		return
+		return body, fmt.Errorf("unable to parse deployment manifest")
 	}
-
-	outputsKey, _ = age.GenerateX25519Identity()
-	body := dp.DeploymentCreateBody{
-		ProjectId:                 data.ProjectId.ValueString(),
-		EnvId:                     data.EnvId.ValueString(),
-		Manifest:                  &manifest,
-		Mode:                      dp.DeploymentCreateBodyMode(data.Mode.ValueString()),
-		EncryptedOutputsRecipient: ref.Ref(outputsKey.Recipient().String()),
+	mode := dp.DeploymentCreateBodyMode(data.Mode.ValueString())
+	if data.Mode.IsNull() {
+		mode = dp.DeploymentCreateBodyModeDeploy
 	}
-	// Always explicit for deploys: the Data Plane queues a request without
-	// when_busy, so reject has to be asked for. plan_only is never queued.
-	if body.Mode == dp.DeploymentCreateBodyModeDeploy {
+	body = dp.DeploymentCreateBody{ProjectId: data.ProjectId.ValueString(), EnvId: data.EnvId.ValueString(), Manifest: &manifest, Mode: mode}
+	if mode == dp.DeploymentCreateBodyModeDeploy {
 		body.WhenBusy = ref.Ref(dp.Queue)
 		if data.WhenBusy.ValueString() == whenBusyReject {
 			body.WhenBusy = ref.Ref(dp.Reject)
@@ -266,16 +269,17 @@ func (d *DeploymentResource) doDeployment(ctx context.Context, data *DeploymentR
 			body.HaltOnFailure = ref.Ref(true)
 		}
 	}
-	params := &dp.CreateDeploymentParams{IdempotencyKey: ref.Ref(uuid.NewString())}
-	var r *dp.CreateDeploymentResponse
-	var err error
-	if len(selectedTests) > 0 {
-		testParams := dp.CreateModuleTestDeploymentParams(*params)
-		response, callErr := d.dpClient.CreateModuleTestDeploymentWithResponse(ctx, d.orgId, &testParams, dp.ModuleTestDeploymentCreateBody{Deployment: body, DraftTestSnapshots: selectedTests})
-		r, err = (*dp.CreateDeploymentResponse)(response), callErr
-	} else {
-		r, err = d.dpClient.CreateDeploymentWithResponse(ctx, d.orgId, params, body)
+	return body, nil
+}
+
+func (d *DeploymentResource) doDeployment(ctx context.Context, data *DeploymentResourceModel, operation *deploymentOperation, diags *diag.Diagnostics) (outputsKey *age.X25519Identity, refused bool) {
+	outputsKey, err := operation.identity()
+	if err != nil {
+		diags.AddError(PO_PROVIDER_ERR, "Invalid retained deployment output custody.")
+		return nil, false
 	}
+	body := operation.Request.Deployment
+	r, err := d.submitPreparedDeployment(ctx, operation)
 	var deployment *dp.Deployment
 	switch {
 	case err != nil:
@@ -286,16 +290,22 @@ func (d *DeploymentResource) doDeployment(ctx context.Context, data *DeploymentR
 			fenced = d.environmentFenceDetail(ctx, body.ProjectId, body.EnvId)
 		}
 		addDeploymentConflictError(diags, body.WhenBusy, r.JSON409, r.Body, fenced)
+		refused = deploymentAdmissionRefused(r.StatusCode(), r.JSON409)
 	case r.StatusCode() == http.StatusAccepted && r.JSON202 != nil:
-		deployment = d.awaitQueuedDeployment(ctx, *r.JSON202, diags)
+		deployment, refused = d.awaitPreparedQueue(ctx, body, *r.JSON202, diags)
 	case r.StatusCode() == http.StatusCreated && r.JSON201 != nil:
 		deployment = r.JSON201
 		addPendingChangesWarning(diags, deployment.PendingChanges)
 	default:
 		diags.AddError(PO_API_ERR, fmt.Sprintf("Unable to create deployment, unexpected status code: %d, body: %s", r.StatusCode(), r.Body))
+		refused = deploymentAdmissionRefused(r.StatusCode(), nil)
 	}
 	if deployment == nil {
-		return nil
+		return nil, refused
+	}
+	if err := operation.bindAdmission(deployment); err != nil {
+		diags.AddError(PO_API_ERR, err.Error())
+		return nil, false
 	}
 	data.Id = types.StringValue(deployment.Id.String())
 	data.CreatedAt = types.StringValue(deployment.CreatedAt.Format(time.RFC3339))
@@ -304,7 +314,7 @@ func (d *DeploymentResource) doDeployment(ctx context.Context, data *DeploymentR
 	data.Status = types.StringValue(deployment.Status)
 	data.StatusMessage = types.StringValue(deployment.StatusMessage)
 	data.RunnerId = types.StringValue(deployment.RunnerId)
-	return outputsKey
+	return outputsKey, false
 }
 
 func (d *DeploymentResource) waitForDeployment(ctx context.Context, data *DeploymentResourceModel, diags *diag.Diagnostics, outputsKey *age.X25519Identity) {
@@ -315,7 +325,8 @@ func (d *DeploymentResource) waitForDeployment(ctx context.Context, data *Deploy
 	}
 
 	for {
-		if r, err := d.dpClient.WaitForDeploymentCompleteWithResponse(ctx, d.orgId, deploymentUuid, &dp.WaitForDeploymentCompleteParams{}); err != nil {
+		r, err := d.dpClient.WaitForDeploymentCompleteWithResponse(ctx, d.orgId, deploymentUuid, &dp.WaitForDeploymentCompleteParams{})
+		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
 				continue
 			}
@@ -330,29 +341,24 @@ func (d *DeploymentResource) waitForDeployment(ctx context.Context, data *Deploy
 		} else if r.StatusCode() != http.StatusOK {
 			diags.AddError(PO_API_ERR, fmt.Sprintf("Unable to wait for deployment to complete, unexpected status code: %d, body: %s", r.StatusCode(), r.Body))
 			return
-		} else {
-			data.Status = types.StringValue(r.JSON200.Status)
-			data.StatusMessage = types.StringValue(r.JSON200.StatusMessage)
-			data.CompletedAt = types.StringValue(r.JSON200.CompletedAt.Format(time.RFC3339))
-			if data.Status.ValueString() == "succeeded" {
-				if r, err := d.dpClient.GetDeploymentEncryptedOutputsWithResponse(ctx, d.orgId, deploymentUuid); err != nil {
-					diags.AddError(PO_API_ERR, fmt.Sprintf("Unable to read deployment outputs, got error: %s", err))
-				} else if r.StatusCode() != http.StatusOK {
-					diags.AddError(PO_API_ERR, fmt.Sprintf("Unable to read deployment outputs, unexpected status code: %d, body: %s", r.StatusCode(), r.Body))
-				} else {
-					if decrypted, err := age.Decrypt(base64.NewDecoder(base64.StdEncoding, strings.NewReader(r.JSON200.Raw)), outputsKey); err != nil {
-						diags.AddError(PO_API_ERR, fmt.Sprintf("Unable to decrypt deployment outputs, got error: %s", err))
-					} else if raw, err := io.ReadAll(decrypted); err != nil {
-						diags.AddError(PO_API_ERR, fmt.Sprintf("Unable to read deployment outputs, got error: %s", err))
-					} else {
-						data.Outputs = types.StringValue(string(raw))
-					}
-				}
-			} else {
-				diags.AddError(PO_CLIENT_ERR, fmt.Sprintf("Deployment failed: %s", data.StatusMessage))
-			}
+		}
+		if !deploymentMatchesScope(r.JSON200, d.orgId, data.ProjectId.ValueString(), data.EnvId.ValueString()) || r.JSON200.Id != deploymentUuid || r.JSON200.CompletedAt == nil {
+			diags.AddError(PO_API_ERR, "Deployment completion identity, scope or completion timestamp did not match the accepted deployment.")
 			return
 		}
+		data.Status = types.StringValue(r.JSON200.Status)
+		data.StatusMessage = types.StringValue(r.JSON200.StatusMessage)
+		data.CompletedAt = types.StringValue(r.JSON200.CompletedAt.Format(time.RFC3339))
+		if data.Status.ValueString() != "succeeded" {
+			diags.AddError(PO_CLIENT_ERR, fmt.Sprintf("Deployment failed: %s", data.StatusMessage))
+			return
+		}
+		var outputsDiagnostics diag.Diagnostics
+		d.readDeploymentOutputs(ctx, deploymentUuid, outputsKey, data, &outputsDiagnostics)
+		if outputsDiagnostics.HasError() {
+			diags.AddWarning("Deployment succeeded; outputs unavailable", "The deployment completed successfully, but its outputs could not be retrieved or decrypted. The accepted deployment and its private output identity were retained. Outputs remain empty until an authorized refresh can retrieve and decrypt them; no new deployment is needed.")
+		}
+		return
 	}
 }
 
@@ -367,21 +373,51 @@ func (d *DeploymentResource) Create(ctx context.Context, request resource.Create
 	if response.Diagnostics.HasError() {
 		return
 	}
-	d.deploy(ctx, timeout, &data, &response.State, &response.Diagnostics)
+	d.deploy(ctx, timeout, &data, nil, response.Private, deploymentCustody{Version: 1}, &response.State, &response.Diagnostics)
 }
 
 // deploy creates the deployment, waits in the environment's deployment queue
 // if needed and, with wait_for, for completion, all within timeout. A started
 // deployment is always recorded in state, even when a later step fails.
-func (d *DeploymentResource) deploy(ctx context.Context, timeout time.Duration, data *DeploymentResourceModel, state *tfsdk.State, diags *diag.Diagnostics) {
+func (d *DeploymentResource) deploy(ctx context.Context, timeout time.Duration, data, prior *DeploymentResourceModel, private deploymentPrivateData, custody deploymentCustody, state *tfsdk.State, diags *diag.Diagnostics) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-
-	outputsKey := d.doDeployment(ctx, data, diags)
-	if outputsKey == nil {
+	if data.WaitFor.IsUnknown() {
+		diags.AddError(PO_INPUT_ERR, "wait_for must be known before deployment")
 		return
 	}
+	if data.Mode.IsNull() {
+		data.Mode = types.StringValue(string(dp.DeploymentCreateBodyModeDeploy))
+	}
+	if data.WaitFor.IsNull() {
+		data.WaitFor = types.BoolValue(true)
+	}
+	retrying := custody.Pending != nil
+	operation, err := d.prepareDeployment(ctx, data, custody)
+	if err != nil {
+		diags.AddError(PO_INPUT_ERR, err.Error())
+		return
+	}
+	custody.Pending = operation
+	diags.Append(storeDeploymentCustody(ctx, private, custody)...)
+	if diags.HasError() {
+		return
+	}
+	outputsKey, refused := d.doDeployment(ctx, data, operation, diags)
+	if outputsKey == nil {
+		if refused && !retrying {
+			custody.Pending = nil
+		}
+		diags.Append(storeDeploymentCustody(ctx, private, custody)...)
+		if prior != nil {
+			diags.Append(state.Set(ctx, prior)...)
+		}
+		return
+	}
+	custody.Current = operation
+	custody.Pending = nil
 	diags.Append(state.Set(ctx, data)...)
+	diags.Append(storeDeploymentCustody(ctx, private, custody)...)
 	if diags.HasError() || !data.WaitFor.ValueBool() {
 		return
 	}
@@ -396,6 +432,14 @@ func (d *DeploymentResource) Read(ctx context.Context, request resource.ReadRequ
 		return
 	}
 
+	custody, err := readDeploymentCustody(ctx, request.Private)
+	if err == nil {
+		err = d.validateDeploymentCustody(custody, data)
+	}
+	if err != nil {
+		response.Diagnostics.AddError(PO_PROVIDER_ERR, err.Error())
+		return
+	}
 	deploymentUuid, err := uuid.Parse(data.Id.ValueString())
 	if err != nil {
 		response.Diagnostics.AddError(PO_API_ERR, fmt.Sprintf("Unable to parse deployment ID, got error: %s", err))
@@ -413,13 +457,20 @@ func (d *DeploymentResource) Read(ctx context.Context, request resource.ReadRequ
 		response.Diagnostics.AddError(PO_API_ERR, fmt.Sprintf("Unable to read deployment, unexpected status code: %d, body: %s", r.StatusCode(), r.Body))
 		return
 	} else {
-		// Just refresh the status/status_message/completed_at fields.
+		if !deploymentMatchesScope(r.JSON200, d.orgId, data.ProjectId.ValueString(), data.EnvId.ValueString()) || r.JSON200.Id != deploymentUuid {
+			response.Diagnostics.AddError(PO_API_ERR, "Deployment read identity or scope did not match retained state.")
+			return
+		}
+		// Refresh the same accepted object; this path never admits a deployment.
 		data.Status = types.StringValue(r.JSON200.Status)
 		data.StatusMessage = types.StringValue(r.JSON200.StatusMessage)
 		data.CompletedAt = types.StringNull()
 		if r.JSON200.CompletedAt != nil {
 			data.CompletedAt = types.StringValue(r.JSON200.CompletedAt.Format(time.RFC3339))
 		}
+	}
+	if data.Status.ValueString() == "succeeded" {
+		d.recoverDeploymentOutputs(ctx, custody.Current, &data, &response.Diagnostics)
 	}
 	response.Diagnostics.Append(response.State.Set(ctx, &data)...)
 }
@@ -431,11 +482,19 @@ func (d *DeploymentResource) Update(ctx context.Context, request resource.Update
 	if response.Diagnostics.HasError() {
 		return
 	}
+	custody, err := readDeploymentCustody(ctx, request.Private)
+	if err == nil {
+		err = d.validateDeploymentCustody(custody, prior)
+	}
+	if err != nil {
+		response.Diagnostics.AddError(PO_PROVIDER_ERR, err.Error())
+		return
+	}
 	// when_busy, halt_on_failure and timeouts say how to deploy, not what:
 	// changing only them, for example to wait longer in the queue, must not
 	// redeploy.
-	if data.ProjectId.Equal(prior.ProjectId) && data.EnvId.Equal(prior.EnvId) && data.Manifest.Equal(prior.Manifest) &&
-		data.Mode.Equal(prior.Mode) && data.WaitFor.Equal(prior.WaitFor) && data.DraftTests.Equal(prior.DraftTests) {
+	if custody.Pending == nil && data.ProjectId.Equal(prior.ProjectId) && data.EnvId.Equal(prior.EnvId) && data.Manifest.Equal(prior.Manifest) &&
+		data.Mode.Equal(prior.Mode) && data.WaitFor.Equal(prior.WaitFor) && data.DraftTests.Equal(prior.DraftTests) && data.PipelineVersionID.Equal(prior.PipelineVersionID) {
 		data.Id, data.CreatedAt, data.CompletedAt, data.Outputs = prior.Id, prior.CreatedAt, prior.CompletedAt, prior.Outputs
 		data.Status, data.StatusMessage, data.RunnerId = prior.Status, prior.StatusMessage, prior.RunnerId
 		response.Diagnostics.Append(response.State.Set(ctx, &data)...)
@@ -446,7 +505,7 @@ func (d *DeploymentResource) Update(ctx context.Context, request resource.Update
 	if response.Diagnostics.HasError() {
 		return
 	}
-	d.deploy(ctx, timeout, &data, &response.State, &response.Diagnostics)
+	d.deploy(ctx, timeout, &data, &prior, response.Private, custody, &response.State, &response.Diagnostics)
 }
 
 func (d *DeploymentResource) Delete(ctx context.Context, request resource.DeleteRequest, response *resource.DeleteResponse) {

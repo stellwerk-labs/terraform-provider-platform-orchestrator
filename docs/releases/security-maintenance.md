@@ -5,7 +5,7 @@ artifact or a completed deployment.
 
 ## Security changes
 
-Official builds use Go 1.26.10, including the certificate verification fix for
+Official builds use Go 1.26.11, including the certificate verification fix for
 [CVE-2026-111943](https://pkg.go.dev/vuln/GO-2026-6809).
 
 Existing HTTP, cryptography, OpenAPI and gRPC dependencies are updated to patched versions. Generated clients use the corrected server contracts. This maintenance does not change resource schemas, state ownership or the plugin entitlement boundary.
@@ -24,6 +24,6 @@ organization and credentials; contained tests do not replace it.
 
 Existing published versions and artifacts remain immutable. Use a new patch
 version after the normal integration and artifact checks pass. Source builds
-following the supported release tooling require Go 1.26.10. Clients using the
+following the supported release tooling require Go 1.26.11. Clients using the
 corrected vendored API documents must verify their exact published server source
 pins before release.

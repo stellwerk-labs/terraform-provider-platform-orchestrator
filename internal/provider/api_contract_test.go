@@ -85,17 +85,14 @@ func TestServerContractsMatchRecordedSource(t *testing.T) {
 		blob := sha1.Sum(append([]byte(fmt.Sprintf("blob %d\x00", len(raw))), raw...))
 		require.Equal(t, recordedSourceValue(t, source, "Git blob"), fmt.Sprintf("%x", blob), "Git blob in %s", source)
 		commit := recordedSourceValue(t, source, "Commit")
-		if strings.HasPrefix(commit, "local-candidate-") {
-			require.Equal(t, "stellwerk-labs/platform-orchestrator-cp", repository, "only the explicit local Core candidate may use this qualification marker")
-			require.Regexp(t, "^[0-9a-f]{40}$", recordedSourceValue(t, source, "Base commit"))
-			require.Regexp(t, "^[0-9a-f]{64}$", recordedSourceValue(t, source, "Source working-tree content SHA-256"))
-			candidatePath := os.Getenv("CP_SPEC_PATH")
-			require.NotEmpty(t, candidatePath, "unpublished candidate qualification requires explicit CP_SPEC_PATH; this is not a public build pin")
+		require.Regexp(t, "^[0-9a-f]{40}$", commit)
+		if recordedSourceValue(t, source, "Qualification") == "local-candidate" {
+			variable := map[string]string{"stellwerk-labs/platform-orchestrator-cp": "CP_SPEC_PATH", "stellwerk-labs/platform-orchestrator-dp": "DP_SPEC_PATH"}[repository]
+			candidatePath := os.Getenv(variable)
+			require.NotEmpty(t, candidatePath, "unpublished candidate requires explicit %s", variable)
 			candidate, readErr := os.ReadFile(candidatePath)
 			require.NoError(t, readErr)
-			require.Equal(t, candidate, raw, "candidate source must match exact vendored generation input")
-		} else {
-			require.Regexp(t, "^[0-9a-f]{40}$", commit)
+			require.Equal(t, candidate, raw, "exact immutable source snapshot must match generator input")
 		}
 		require.Equal(t, repository, recordedSourceValue(t, source, "Repository"))
 		require.Equal(t, "openapi/spec.yaml", recordedSourceValue(t, source, "File"))
@@ -182,7 +179,7 @@ func TestProgressiveRolloutsAPIContractIsPinnedAndValid(t *testing.T) {
 
 	raw, err := os.ReadFile(progressiveRolloutsSpecPath)
 	require.NoError(t, err)
-	require.Equal(t, "bc1e49c348fc5c95a2c5eef6d5fd2f0bfb5a35ccbc374c3bab7a6fb76801a0fd", fmt.Sprintf("%x", sha256.Sum256(raw)),
+	require.Equal(t, "b5f53a7717c3280dd62f6c9624bcb316c9396e17256b928be0ce7633a9da886d", fmt.Sprintf("%x", sha256.Sum256(raw)),
 		"spec.yaml changed: vendor the canonical plugin contract byte-identically and update SOURCE.md")
 
 	loader := openapi3.NewLoader()
@@ -224,7 +221,7 @@ func TestProgressiveRolloutsAPIContractIsSelfContainedPluginSurface(t *testing.T
 	require.Empty(t, contractObject(t, document["paths"]))
 
 	operations := progressiveRolloutsContractOperations(t, document)
-	require.Len(t, operations, 15)
+	require.Len(t, operations, 17)
 	for id, operation := range operations {
 		require.Contains(t, []any{"GET", "POST", "PATCH", "DELETE"}, operation["x-method"], id)
 		require.IsType(t, true, operation["x-mutating"], id)

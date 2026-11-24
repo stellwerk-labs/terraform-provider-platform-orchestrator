@@ -1,23 +1,19 @@
-# Orchestrator Control Plane API contract
+# Orchestrator Control Plane API contract, public source
 
-`spec.yaml` is a byte-identical copy of the selected immutable public source
-commit and the sole input of the repository's pinned official generated client.
+`spec.yaml` is byte-identical to the immutable public source below, verified by
+anonymous HTTP readback. It is the input of the existing pinned official client
+generator. This records public source provenance, not a released client or server.
 
 - Repository: `stellwerk-labs/platform-orchestrator-cp`
-- Commit: `935835a8efa36623f955294b48fadbaedb90436f`
+- Commit: `6b133551f03fe48130b8bf9974f77b19c614271c`
+- Qualification: `public-source`
 - File: `openapi/spec.yaml`
-- Git blob: `d2862d7346e280051110bfa0394f66bc15a61f62`
-- File SHA-256: `d622638c9aaa6baaf3b9648cbba3f3518f1738e6d20583f804c69c0f1421db7c`
+- Git blob: `66865d77542d16373e26ac10b2e5c92a7b9323b4`
+- File SHA-256: `b720ffe7154012200f52c3b509baaa51ff67ac57140a0dabbd5e9b41d9b649b8`
+- Public URL: `https://raw.githubusercontent.com/stellwerk-labs/platform-orchestrator-cp/6b133551f03fe48130b8bf9974f77b19c614271c/openapi/spec.yaml`
 
-This contract exposes deferred Provider deletion: `202 Accepted` requests
-retirement, and `deletion_requested_at` remains readable until cleanup completes.
-Existing Runner capacity/protocol fields and Module Draft interfaces are retained.
-The corresponding public SDK is CP shared/v3 v3.3.0.
+The public canonical contract includes the qualified Runner metadata and deployment-domain types. Client generation does not activate execution or establish a matching installed server.
 
-The exact source commit is publicly reachable. This source pin does not prove
-that a server artifact has been released or that a running installation supports
-the new behavior. Client publication requires the qualified coordinated server
-set and ordinary public-source checks without local specification overrides.
-Regenerate through the repository's official generators; do not hand-edit the
-snapshot or generated client. IAM's automation contract is unchanged in this
-train, so its existing public source pin is retained.
+Regenerate through the existing repository toolchain. Normal source verification
+fetches this public revision with every local source override unset. Do not
+hand-edit the snapshot or generated client.

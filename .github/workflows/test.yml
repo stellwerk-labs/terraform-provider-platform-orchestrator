@@ -89,6 +89,40 @@ jobs:
           git diff --compact-summary --exit-code || \
             (echo; echo "Unexpected difference in directories after code generation. Run 'make generate' command and commit."; exit 1)
 
+  native-runner-cli:
+    name: Native Runner CLI Contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GOTOOLCHAIN: go1.26.11
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.11'
+          cache: true
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: '1.17.2'
+          terraform_wrapper: false
+      - name: Install checksum-verified OpenTofu consumer
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$(mktemp)"
+          trap 'rm -f "$archive"' EXIT
+          curl --proto '=https' --proto-redir '=https' --tlsv1.2 --fail --silent --show-error \
+            --location --retry 3 --max-time 60 \
+            https://github.com/opentofu/opentofu/releases/download/v1.13.9/tofu_1.13.9_linux_amd64.zip \
+            --output "$archive"
+          printf '%s  %s\n' bc44eb6b06446ba83bd4072114891987f590f66cca712737a7f1147c50c539ce "$archive" | sha256sum --check --strict
+          mkdir -p "$RUNNER_TEMP/native-cli-tools"
+          unzip -p "$archive" tofu > "$RUNNER_TEMP/native-cli-tools/tofu"
+          chmod 0755 "$RUNNER_TEMP/native-cli-tools/tofu"
+          echo "$RUNNER_TEMP/native-cli-tools" >> "$GITHUB_PATH"
+      - name: Run required actual Terraform and OpenTofu contract
+        run: make test-native-runner-cli
+
   test:
     name: Terraform Provider Acceptance Tests
     needs: build

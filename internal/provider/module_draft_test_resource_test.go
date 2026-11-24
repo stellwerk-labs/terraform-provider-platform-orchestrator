@@ -72,7 +72,7 @@ func TestDeploymentDraftSelectionDoesNotFallBackToOlderServer(t *testing.T) {
 	resource := &DeploymentResource{dpClient: client, orgId: "org"}
 	data := DeploymentResourceModel{ProjectId: types.StringValue("project"), EnvId: types.StringValue("development"), Manifest: types.StringValue(`{"workloads":{},"shared":{}}`), DraftTests: types.MapValueMust(types.StringType, map[string]attr.Value{uuid.NewString(): types.StringValue(uuid.NewString())})}
 	var diagnostics diag.Diagnostics
-	resource.doDeployment(t.Context(), &data, &diagnostics)
+	startDeploymentWireTest(t, resource, &data, &diagnostics)
 	require.True(t, diagnostics.HasError())
 	require.Zero(t, ordinaryCalls.Load(), "missing captured-test support must not deploy the ordinary Default")
 }

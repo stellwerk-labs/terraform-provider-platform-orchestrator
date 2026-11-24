@@ -3,12 +3,21 @@
 page_title: "platform-orchestrator_deployment Resource - platform-orchestrator"
 subcategory: ""
 description: |-
-  Deployment resource
+  Deployment resource.
+  Once Terraform has retained an accepted deployment and its private output identity, refresh can retrieve that deployment's outputs without deploying again. Protect the Terraform state backend: private resource metadata contains encryption material and is not encrypted by the provider.
+  If the deployment has conclusively succeeded but outputs cannot be retrieved, apply reports a warning and retains the successful deployment without taint. Outputs remain empty until an authorized refresh can retrieve and decrypt them.
+  A create error can leave the resource tainted. Refresh does not remove taint, so verify the accepted deployment before another apply, which may create a replacement. Termination before Terraform receives and saves the response can still lose custody, including when applying a saved plan. Historical output identities that were not retained cannot be recovered.
 ---
 
 # platform-orchestrator_deployment (Resource)
 
-Deployment resource
+Deployment resource.
+
+Once Terraform has retained an accepted deployment and its private output identity, refresh can retrieve that deployment's outputs without deploying again. Protect the Terraform state backend: private resource metadata contains encryption material and is not encrypted by the provider.
+
+If the deployment has conclusively succeeded but outputs cannot be retrieved, apply reports a warning and retains the successful deployment without taint. Outputs remain empty until an authorized refresh can retrieve and decrypt them.
+
+A create error can leave the resource tainted. Refresh does not remove taint, so verify the accepted deployment before another apply, which may create a replacement. Termination before Terraform receives and saves the response can still lose custody, including when applying a saved plan. Historical output identities that were not retained cannot be recovered.
 
 ## Example Usage
 
@@ -17,6 +26,8 @@ resource "platform-orchestrator_deployment" "main" {
   project_id = "my-project"
   env_id     = "development"
   mode       = "deploy"
+  # Optional exact published version; omission uses the server default.
+  # pipeline_version_id = platform-orchestrator_pipeline_version.release.id
   manifest = jsonencode({
     workloads = {}
     shared    = {}
@@ -51,8 +62,9 @@ resource "platform-orchestrator_deployment" "main" {
 - `draft_test_snapshots` (Map of String) Exact captured Module tests, mapping stable Module UUIDs to immutable snapshot UUIDs scoped to this Environment. These use a separate server operation and never fall back to published Defaults on an older server. Capture with platform-orchestrator_module_draft_test first. Changing a selection creates a new deployment; it does not edit the snapshot or publish a Version.
 - `halt_on_failure` (Boolean) Whether a deployment that waits in the environment's deployment queue must not start when the deployment it waited for failed. The queued request is then rejected with `previous_deployment_failed`, the apply fails and names the failed deployment, and the queue continues with the next request. Unset means `false`. A deployment that starts at once never halts, and `plan_only` deployments are never queued. Not valid with `when_busy = "reject"`. Changing only `halt_on_failure` updates state without redeploying.
 - `mode` (String) The mode of the deployment. 'deploy' (the default) or 'plan_only'. A `plan_only` deployment is never queued and does not run beside another deployment of the environment; while deployments wait in the environment's deployment queue, it plans the environment as it is now and the apply warns that the result may change.
+- `pipeline_version_id` (String) Exact published pipeline Version UUID. Resolved through Core to its immutable numeric version; the server validates policy, Runner compatibility and executable digest. Omission uses the server default and preserves existing deployments on upgrade. Changing the selection starts a new deployment; it never edits a recipe or approves its gates.
 - `timeouts` (Block, Optional) (see [below for nested schema](#nestedblock--timeouts))
-- `wait_for` (Boolean) Whether to wait for the deployment to complete. Defaults to true. If false, the output will be empty.
+- `wait_for` (Boolean) Whether to wait for the deployment to complete. Defaults to true. If false, outputs are initially empty and a later refresh retrieves them after successful completion.
 - `when_busy` (String) What the deployment does when its environment is busy with another deployment or already has queued deployments. `queue` (the default) waits in the environment's deployment queue and starts in order once the environment is free; the create or update timeout covers that wait, and a request still queued when it elapses is cancelled. `reject` fails with `environment_busy` instead. Leaving it unset means `queue`, which is also the Data Plane's own default; the provider sends the value explicitly either way. A provider authorized by an organization token cannot wait in the queue and gets `environment_busy` from a busy environment. `plan_only` deployments are never queued. Changing only `when_busy` updates state without redeploying.
 
 ### Read-Only

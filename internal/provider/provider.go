@@ -14,6 +14,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"gopkg.in/yaml.v3"
 
+	"github.com/stellwerk-labs/terraform-provider-platform-orchestrator/internal/clients/pipelines"
 	cp "github.com/stellwerk-labs/terraform-provider-platform-orchestrator/internal/clients/platform-orchestrator-cp"
 	dp "github.com/stellwerk-labs/terraform-provider-platform-orchestrator/internal/clients/platform-orchestrator-dp"
 	iam "github.com/stellwerk-labs/terraform-provider-platform-orchestrator/internal/clients/platform-orchestrator-iam"
@@ -70,11 +71,14 @@ type PlatformOrchestratorProviderModel struct {
 }
 
 type PlatformOrchestratorProviderData struct {
-	OrgId string
+	OrgId                string
+	deploymentScope      string
+	deploymentCredential string
 
-	CpClient  cp.ClientWithResponsesInterface
-	DpClient  dp.ClientWithResponsesInterface
-	IamClient iam.ClientWithResponsesInterface
+	PipelineClient pipelines.ClientWithResponsesInterface
+	CpClient       cp.ClientWithResponsesInterface
+	DpClient       dp.ClientWithResponsesInterface
+	IamClient      iam.ClientWithResponsesInterface
 }
 
 func (p *PlatformOrchestratorProvider) Metadata(ctx context.Context, req provider.MetadataRequest, resp *provider.MetadataResponse) {
@@ -295,9 +299,17 @@ func (p *PlatformOrchestratorProvider) Configure(ctx context.Context, req provid
 		return
 	}
 
-	dpc, err := dp.NewClientWithResponses(apiUrl, dp.WithRequestEditorFn(extraHeadersEditor), dp.WithHTTPClient(client))
+	scopedHTTP := *client
+	scopedHTTP.CheckRedirect = func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }
+	dpc, err := dp.NewClientWithResponses(apiUrl, dp.WithRequestEditorFn(extraHeadersEditor), dp.WithHTTPClient(&scopedHTTP))
 	if err != nil {
 		resp.Diagnostics.AddError(PO_CLIENT_ERR, fmt.Sprintf("Unable to create Platform Orchestrator DP client: %s", err.Error()))
+		return
+	}
+
+	pipelineClient, err := pipelines.NewClientWithResponses(apiUrl, pipelines.WithRequestEditorFn(extraHeadersEditor), pipelines.WithHTTPClient(&scopedHTTP))
+	if err != nil {
+		resp.Diagnostics.AddError(PO_CLIENT_ERR, fmt.Sprintf("Unable to create pipeline client: %s", err))
 		return
 	}
 
@@ -307,11 +319,15 @@ func (p *PlatformOrchestratorProvider) Configure(ctx context.Context, req provid
 		return
 	}
 
+	scopeFingerprint, credentialFingerprint := deploymentAuthority(apiUrl, orgId, extraHeaders)
 	respData := &PlatformOrchestratorProviderData{
-		OrgId:     orgId,
-		CpClient:  cpc,
-		DpClient:  dpc,
-		IamClient: iamc,
+		deploymentScope:      scopeFingerprint,
+		deploymentCredential: credentialFingerprint,
+		OrgId:                orgId,
+		PipelineClient:       pipelineClient,
+		CpClient:             cpc,
+		DpClient:             dpc,
+		IamClient:            iamc,
 	}
 
 	resp.DataSourceData = respData
@@ -321,11 +337,15 @@ func (p *PlatformOrchestratorProvider) Configure(ctx context.Context, req provid
 func (p *PlatformOrchestratorProvider) Resources(ctx context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		NewProjectResource,
+		NewPipelineResource,
+		NewPipelineVersionResource,
+		NewPipelinePolicyResource,
 		NewEnvironmentTypeResource,
 		NewKubernetesRunnerResource,
 		NewKubernetesEksRunnerResource,
 		NewKubernetesGkeRunnerResource,
 		NewKubernetesAgentRunnerResource,
+		NewNativeAgentRunnerResource,
 		NewServerlessEcsRunnerResource,
 		NewProviderResource,
 		NewResourceTypeResource,
@@ -365,6 +385,7 @@ func (p *PlatformOrchestratorProvider) DataSources(ctx context.Context) []func()
 		NewKubernetesEksRunnerDataSource,
 		NewKubernetesGkeRunnerDataSource,
 		NewKubernetesAgentRunnerDataSource,
+		NewNativeAgentRunnerDataSource,
 		NewServerlessEcsRunnerDataSource,
 		NewProviderDataSource,
 		NewResourceTypeDataSource,

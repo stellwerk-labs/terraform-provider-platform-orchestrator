@@ -137,3 +137,26 @@ func TestProgressiveRolloutStatusJSONCarriesTheLicenceFields(t *testing.T) {
 		statusJSON(rolloutWithStatus(`{`+counts+`,"entitlement_suspension":`+suspension+`}`)), "a licence suspension reaches status_json")
 	require.JSONEq(t, `{`+counts+`}`, statusJSON(rolloutWithStatus(`{`+counts+`}`)), "a licensed Rollout adds neither field")
 }
+
+func TestProgressiveRolloutSpecPreservesPipelineReferencesAndExplicitSafetyChoice(t *testing.T) {
+	var document map[string]any
+	require.NoError(t, json.Unmarshal([]byte(testRolloutSpec), &document))
+	document["forward_only"] = false
+	document["pipelines"] = []any{map[string]any{"project_id": "project", "forward": map[string]any{"version_id": "22222222-2222-4222-8222-222222222222", "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, "rollback": map[string]any{"builtin": "default", "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}}
+	document["pipeline_selection"] = map[string]any{"mode": "custom", "overrides": []any{map[string]any{"environment_uuid": "33333333-3333-4333-8333-333333333333", "rollback": map[string]any{"builtin": "default", "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}}}
+	raw, err := json.Marshal(document)
+	require.NoError(t, err)
+	spec, err := decodeProgressiveRolloutSpec(jsontypes.NewNormalizedValue(string(raw)))
+	require.NoError(t, err)
+	encoded, err := json.Marshal(spec)
+	require.NoError(t, err)
+	var actual map[string]any
+	require.NoError(t, json.Unmarshal(encoded, &actual))
+	require.Equal(t, false, actual["forward_only"])
+	require.Equal(t, document["pipelines"], actual["pipelines"])
+	require.Equal(t, document["pipeline_selection"], actual["pipeline_selection"])
+	legacy, err := decodeProgressiveRolloutSpec(jsontypes.NewNormalizedValue(testRolloutSpec))
+	require.NoError(t, err)
+	require.Nil(t, legacy.ForwardOnly)
+	require.Nil(t, legacy.PipelineSelection)
+}
