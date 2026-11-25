@@ -31,4 +31,7 @@ and update the digest here and in `internal/provider/api_contract_test.go` in
 the same change. Any revision requires regeneration while the level is
 `v1alpha`.
 
-Feature branch qualification uses the local candidate from `spike/plugin-pipelines-20261118`, based on qualified Rollouts `aff263b`. This candidate is not a published or released plugin contract. Its canonical owner is `rollouts/api/progressive-rollouts-v1alpha.openapi.yaml`; release requires coordinated qualification and publication.
+Pipeline selection in this contract belongs to the coordinated Pipeline RC.
+The plugin owns its canonical `progressive-rollouts-v1alpha.openapi.yaml`
+contract; this vendored copy and its checksum do not publish or install the
+commercial plugin. Use a compatible plugin release advertised by Core discovery.

@@ -6,6 +6,12 @@ description: |-
   Enterprise: manages a persistent Progressive Rollout Draft, its immutable Plan preparation and high-level execution state. Requires the Stellwerk Enterprise plugin Progressive Rollouts (dev.stellwerk.progressive-rollouts) to be installed, enabled and licensed for the organization. Otherwise the provider reports plugin_not_installed, plugin_not_enabled, plugin_not_entitled, plugin_incompatible or plugin_unavailable with the administrator action. After a licence expires, refresh, reads and the safety commands that Core still advertises (such as cancel and rollback) keep working, while new forward changes fail with plugin_not_entitled. Stellwerk permanently retains Rollout audit history, so destroy only forgets the state reference.
 ---
 
+> **Pipeline selection (RC):** Selecting and inspecting Deployment Pipelines
+> through Progressive Rollouts requires the coordinated Pipeline RC, including
+> Provider `2.5.0-rc.1`, and a compatible installed Enterprise plugin. This
+> Pipeline integration is not available in the current stable release from `main`.
+> Existing plugin licensing and availability requirements still apply.
+
 # platform-orchestrator_progressive_rollout (Resource)
 
 Enterprise: manages a persistent Progressive Rollout Draft, its immutable Plan preparation and high-level execution state. Requires the Stellwerk Enterprise plugin Progressive Rollouts (`dev.stellwerk.progressive-rollouts`) to be installed, enabled and licensed for the organization. Otherwise the provider reports `plugin_not_installed`, `plugin_not_enabled`, `plugin_not_entitled`, `plugin_incompatible` or `plugin_unavailable` with the administrator action. After a licence expires, refresh, reads and the safety commands that Core still advertises (such as cancel and rollback) keep working, while new forward changes fail with `plugin_not_entitled`. Stellwerk permanently retains Rollout audit history, so destroy only forgets the state reference.
