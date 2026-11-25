@@ -7,12 +7,12 @@ description: |-
   Runtime-independent native Agent registration. Core permanently retains its UUID and history. Destroy is refused and keeps Terraform state; decommission/erasure is unavailable. Clearing inventory disables new admission without cancelling accepted work. Registration does not activate or assign a site.
 ---
 
+# platform-orchestrator_native_agent_runner (Resource) (RC)
+
 > **RC feature:** This page describes Deployment Pipelines in the coordinated
 > release candidate (Provider `2.5.0-rc.1`). Pipelines are not available in the
 > current stable release from `main`. Use matching Pipeline RC components; Native
 > execution requires explicit operator activation.
-
-# platform-orchestrator_native_agent_runner (Resource) (RC)
 
 Runtime-independent native Agent registration. Core permanently retains its UUID and history. Destroy is refused and keeps Terraform state; decommission/erasure is unavailable. Clearing inventory disables new admission without cancelling accepted work. Registration does not activate or assign a site.
 

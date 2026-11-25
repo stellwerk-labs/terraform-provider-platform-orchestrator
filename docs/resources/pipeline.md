@@ -7,12 +7,12 @@ description: |-
   Declarative project pipeline draft. Does not publish versions or change deployment policy. Delete archives an unused draft; retire published versions and remove policy references first.
 ---
 
+# platform-orchestrator_pipeline (Resource) (RC)
+
 > **RC feature:** This page describes Deployment Pipelines in the coordinated
 > release candidate (Provider `2.5.0-rc.1`). Pipelines are not available in the
 > current stable release from `main`. Use matching Pipeline RC components; Native
 > execution requires explicit operator activation.
-
-# platform-orchestrator_pipeline (Resource) (RC)
 
 Declarative project pipeline draft. Does not publish versions or change deployment policy. Delete archives an unused draft; retire published versions and remove policy references first.
 

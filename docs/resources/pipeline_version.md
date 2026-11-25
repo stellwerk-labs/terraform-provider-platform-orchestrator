@@ -7,12 +7,12 @@ description: |-
   Publishes one immutable reviewed pipeline draft revision. Does not allow or select it in project policy. Delete retires the publication and refuses while policy references it; remove references explicitly first. Use create_before_destroy when publishing a replacement, then move policy references before retirement.
 ---
 
+# platform-orchestrator_pipeline_version (Resource) (RC)
+
 > **RC feature:** This page describes Deployment Pipelines in the coordinated
 > release candidate (Provider `2.5.0-rc.1`). Pipelines are not available in the
 > current stable release from `main`. Use matching Pipeline RC components; Native
 > execution requires explicit operator activation.
-
-# platform-orchestrator_pipeline_version (Resource) (RC)
 
 Publishes one immutable reviewed pipeline draft revision. Does not allow or select it in project policy. Delete retires the publication and refuses while policy references it; remove references explicitly first. Use create_before_destroy when publishing a replacement, then move policy references before retirement.
 

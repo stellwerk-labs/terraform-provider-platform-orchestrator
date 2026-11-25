@@ -7,12 +7,12 @@ description: |-
   Reads a native Agent registration and its public immutable UUID. Does not enroll, initialize or activate execution.
 ---
 
+# platform-orchestrator_native_agent_runner (Data Source) (RC)
+
 > **RC feature:** This page describes Deployment Pipelines in the coordinated
 > release candidate (Provider `2.5.0-rc.1`). Pipelines are not available in the
 > current stable release from `main`. Use matching Pipeline RC components; Native
 > execution requires explicit operator activation.
-
-# platform-orchestrator_native_agent_runner (Data Source) (RC)
 
 Reads a native Agent registration and its public immutable UUID. Does not enroll, initialize or activate execution.
 

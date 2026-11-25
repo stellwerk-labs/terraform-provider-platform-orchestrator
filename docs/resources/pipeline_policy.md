@@ -7,12 +7,12 @@ description: |-
   Manages one project's forward and rollback pipeline-use policy with optimistic concurrency. Import an existing policy using its project ID. Delete never disables protection: first explicitly update to enabled=false, an empty allow-list and empty forward/rollback defaults, then remove the resource in a separate apply.
 ---
 
+# platform-orchestrator_pipeline_policy (Resource) (RC)
+
 > **RC feature:** This page describes Deployment Pipelines in the coordinated
 > release candidate (Provider `2.5.0-rc.1`). Pipelines are not available in the
 > current stable release from `main`. Use matching Pipeline RC components; Native
 > execution requires explicit operator activation.
-
-# platform-orchestrator_pipeline_policy (Resource) (RC)
 
 Manages one project's forward and rollback pipeline-use policy with optimistic concurrency. Import an existing policy using its project ID. Delete never disables protection: first explicitly update to enabled=false, an empty allow-list and empty forward/rollback defaults, then remove the resource in a separate apply.
 
